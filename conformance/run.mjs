@@ -2580,6 +2580,7 @@ for (const [fixture, code] of [
   ["local-reference-escape-method.0", /BOR002/],
   ["borrow-assignment-origin-tracking.0", /BOR001/],
   ["borrow-assignment-shorter-lived-root.0", /BOR002/],
+  ["borrow-call-result-multiple-origins.0", /BOR001/],
   ["world-stream-used-as-value.0", /TYP001/],
 ]) {
   const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
