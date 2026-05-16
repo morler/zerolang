@@ -300,6 +300,7 @@ for (const fixture of [
   "conformance/native/pass/borrow-assignment-same-origin.0",
   "conformance/native/pass/borrow-shadowed-root-reassignment.0",
   "conformance/native/pass/borrow-branch-reassignment.0",
+  "conformance/native/pass/shape-field-reference-reassignment-clears-origin.0",
   "conformance/native/pass/allocator-primitives.0",
   "conformance/native/pass/std-mem-arena.0",
   "conformance/native/pass/std-mem-collections.0",
@@ -2583,6 +2584,7 @@ for (const [fixture, code] of [
   ["unknown-member-on-non-shape.0", /TYP021/],
   ["function-used-as-value.0", /TYP001/],
   ["call-local-value.0", /TYP001/],
+  ["call-shadowed-function-value.0", /TYP001/],
   ["shape-literal-expected-type.0", /TYP002/],
   ["heterogeneous-array-literal.0", /TYP002/],
   ["unknown-function-parameter-type.0", /NAM003/],
@@ -2606,6 +2608,10 @@ for (const [fixture, code] of [
   ["generic-reference-return-escape.0", /BOR002/],
   ["shape-field-reference-escape.0", /BOR002/],
   ["shape-field-reference-borrow-origin.0", /BOR001/],
+  ["return-shape-reference-escape.0", /BOR002/],
+  ["shape-field-reference-call-return-escape.0", /BOR002/],
+  ["shape-field-reference-assignment-origin.0", /BOR001/],
+  ["shape-field-reference-assignment-preserves-other-origin.0", /BOR001/],
   ["world-stream-used-as-value.0", /TYP001/],
 ]) {
   const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
