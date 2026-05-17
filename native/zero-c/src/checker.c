@@ -5675,13 +5675,17 @@ static void assignment_provenance_snapshot_clear(const Expr *target, Scope *scop
   if (!expr_binding_path(target, snapshot->root, sizeof(snapshot->root), snapshot->path, sizeof(snapshot->path))) return;
   if (!scope_has(scope, snapshot->root)) return;
   snapshot->active = true;
-  scope_copy_value_provenance(scope, snapshot->root, &snapshot->previous);
+  ValueProvenance full = {0};
+  if (scope_copy_value_provenance(scope, snapshot->root, &full)) {
+    value_provenance_add_all_under_path(&snapshot->previous, &full, snapshot->path);
+  }
+  value_provenance_free(&full);
   scope_clear_value_provenance_path(scope, snapshot->root, snapshot->path);
 }
 
 static void assignment_provenance_snapshot_restore(Scope *scope, AssignmentProvenanceSnapshot *snapshot) {
   if (!snapshot || !snapshot->active) return;
-  scope_set_value_provenance(scope, snapshot->root, &snapshot->previous);
+  scope_set_value_provenance_path(scope, snapshot->root, snapshot->path, &snapshot->previous);
   value_provenance_free(&snapshot->previous);
   snapshot->active = false;
 }
