@@ -7,35 +7,38 @@ export const metadata = pageMetadata("");
 
 const PILLARS = [
   {
-    metric: "Small",
-    label: "native artifacts",
-    title: "Built for tiny tools",
+    metric: "Learnable",
+    label: "on demand",
+    title: "Small surface area",
     description:
-      "Zero is designed around static dispatch, explicit capabilities, no mandatory GC, and no hidden runtime tax. Size reports make artifact costs visible.",
+      "Zero is aiming for a language an agent can learn while working: regular syntax, few special cases, and compiler feedback that points toward the next edit.",
   },
   {
-    metric: "JSON-native",
-    label: "diagnostics & fixes",
-    title: "Agent-first tooling",
+    metric: "Library",
+    label: "first",
+    title: "Fewer dependency searches",
     description:
-      "Structured diagnostics, graph output, size reports, and typed repair metadata are part of the toolchain rather than an afterthought.",
+      "The long-term goal is a standard library broad and consistent enough that most programs start with documented APIs, not package selection.",
   },
   {
-    metric: "Explicit",
-    label: "effects & memory",
-    title: "Local reasoning first",
+    metric: "Inspectable",
+    label: "by tools",
+    title: "Deterministic repair loops",
     description:
-      "Function signatures expose fallibility and capabilities. Allocation is explicit. Target limits are reported before code generation when possible.",
+      "The toolchain is intended to expose diagnostics, graphs, size reports, explanations, and repair plans as structured data agents can consume.",
   },
 ];
 
 const FEATURES = [
-  { title: "No mandatory GC or event loop", description: "The language keeps allocation, cleanup, and outside-world access visible in code." },
-  { title: "Cross-target checks", description: "The compiler can check target-neutral code for multiple targets and emit direct artifacts for the documented subset." },
-  { title: "C boundary support", description: "Zero exposes C ABI exports and target-aware interop metadata for low-level boundaries." },
-  { title: "Capability-based I/O", description: "Functions declare what they touch. The compiler rejects unavailable capabilities at compile time, not runtime." },
-  { title: "Built for agents", description: "Stable diagnostic codes, machine-readable docs, and fix plans make code easier for humans and agents to repair together." },
-  { title: "One small toolchain", description: "Check, build, test, format, inspect, and document projects from one CLI." },
+  { title: "Pre-1 by design", description: "Today's syntax and APIs are not a contract. Breaking changes are expected while Zero searches for what works best for agents." },
+  { title: "Safe environments only", description: "Security vulnerabilities should be expected. Run and develop Zero in isolated environments, not production systems or sensitive infrastructure." },
+  { title: "Exploration over mastery", description: "Try the current shape, inspect the output, and send feedback. The details will move as the experiment learns." },
+  { title: "One obvious path", description: "The language should favor a small set of regular patterns over many interchangeable styles." },
+  { title: "Standard library over sugar", description: "New capability should usually live in documented APIs before it becomes new syntax." },
+  { title: "Agent-readable tooling", description: "Diagnostics, graph facts, size reports, and repair metadata should be available as structured output." },
+  { title: "Explicit effects", description: "Outside-world access, fallibility, and resource use should stay visible to both readers and tools." },
+  { title: "No legacy promises", description: "When a clearer agent-facing design wins, Zero can replace old behavior instead of carrying compatibility paths forward." },
+  { title: "DX as a goal", description: "Checking, inspecting, explaining, and repairing code should feel direct even when the language is intentionally explicit." },
 ];
 
 const CODE_EXAMPLE = `<span class="hl-keyword">fun</span> <span class="hl-variable">answer</span>() -> <span class="hl-type">i32</span> {
@@ -83,7 +86,7 @@ export default function HomePage() {
       <main>
         <section className="relative z-10 mx-auto flex max-w-[52rem] flex-col items-center px-6 pb-16 pt-[clamp(4rem,12vh,8rem)] text-center">
           <div className="mb-6 inline-flex items-center rounded-full border border-border bg-surface px-3 py-1 text-[0.8125rem] font-medium text-muted">
-            Experimental
+            Pre-1 experiment
           </div>
           <h1 className="m-0 text-[clamp(2rem,5vw,3.75rem)] font-bold leading-[1.15] tracking-[-0.045em]">
             The programming language
@@ -91,11 +94,18 @@ export default function HomePage() {
             for agents
           </h1>
           <p className="mt-6 max-w-[38rem] text-[clamp(1rem,2vw,1.1875rem)] leading-[1.65] text-muted">
-            Zero is a systems language designed so humans and AI agents can read,
-            repair, inspect, and ship small native programs together. It keeps
-            effects explicit, memory predictable, and compiler output structured.
+            Zero explores what a programming language can look like when agents
+            are primary users from day one. The aim is a language that is easy to
+            learn on the fly, deterministic to inspect and repair, standard-library
+            first, and explicit enough that most tasks have one obvious path.
           </p>
           <InstallCopy />
+          <p className="mt-4 max-w-[34rem] text-sm leading-relaxed text-muted">
+            The current toolchain is useful for exploration, but today's syntax
+            and APIs are not a contract. Expect breaking changes while Zero
+            searches for what works best for agents. Run it in a safe
+            environment, not against production systems.
+          </p>
         </section>
 
         <section className="relative z-10 mx-auto grid w-[min(100%-3rem,var(--container-content))] grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-3">
@@ -117,18 +127,21 @@ export default function HomePage() {
             <CodeWindow title="zero check --json" html={AGENT_EXAMPLE} />
           </div>
           <p className="mx-auto mt-4 max-w-[44rem] text-center text-sm leading-relaxed text-muted">
-            Humans read the message. Agents read the JSON. The same CLI surfaces
-            diagnostics, repair metadata, graph facts, and size reports.
+            The direction is a CLI that works at both levels: readable messages
+            for humans, structured facts for agents, and deterministic repair
+            plans where the compiler can propose the next edit.
           </p>
         </section>
 
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
           <div className="mx-auto mb-12 max-w-[36rem] text-center">
-            <p className="mb-2 text-[0.8125rem] font-semibold uppercase tracking-[0.04em] text-blue">Design</p>
-            <h2 className="mb-4 text-[clamp(1.5rem,4vw,2.25rem)] font-bold leading-[1.15] tracking-[-0.035em]">Everything is explicit.</h2>
+            <p className="mb-2 text-[0.8125rem] font-semibold uppercase tracking-[0.04em] text-blue">Direction</p>
+            <h2 className="mb-4 text-[clamp(1.5rem,4vw,2.25rem)] font-bold leading-[1.15] tracking-[-0.035em]">Regularity over cleverness.</h2>
             <p className="m-0 leading-[1.65] text-muted">
-              No hidden allocator. No implicit async. No magic globals.
-              If a function touches the outside world, the signature says so.
+              Zero favors explicit capabilities and standard-library APIs over
+              syntax for every convenience. Some code may be more verbose for
+              humans if that makes it easier for agents to generate, inspect,
+              and repair.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-2 lg:grid-cols-3">
@@ -142,10 +155,11 @@ export default function HomePage() {
         </section>
 
         <section className="relative z-10 border-t border-border px-6 py-[clamp(5rem,12vh,8rem)] text-center">
-          <h2 className="mb-3 text-[clamp(1.75rem,5vw,2.75rem)] font-bold leading-[1.1] tracking-[-0.04em]">Start with zero.</h2>
+          <h2 className="mb-3 text-[clamp(1.75rem,5vw,2.75rem)] font-bold leading-[1.1] tracking-[-0.04em]">Explore with us.</h2>
           <p className="mx-auto mb-8 max-w-[32rem] text-[1.0625rem] leading-relaxed text-muted">
-            Install the compiler, run an example, and try the agent-native
-            workflow.
+            Install the compiler, run an example, and inspect what the experiment
+            can do today. The most useful feedback is what helps agents work
+            with less guesswork.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <ButtonLink href="/getting-started" variant="primary" size="lg">
@@ -161,7 +175,7 @@ export default function HomePage() {
             <LogoIcon width="14" height="12" />
             <span>Zero</span>
           </div>
-          <p className="m-0 text-[0.8125rem] text-muted">Tiny binaries. Explicit effects. Agent-native tooling.</p>
+          <p className="m-0 text-[0.8125rem] text-muted">Agent-first language design, still under active exploration.</p>
         </div>
       </footer>
     </div>
