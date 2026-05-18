@@ -1,8 +1,20 @@
 # Zero
 
-Zero is the programming language for agents: a systems language for small native tools, explicit effects, predictable memory, and structured compiler output.
+Zero is an experiment in building an agent-first programming language.
 
-Zero is experimental and still changing. The compiler, standard library, docs, and examples are useful for trying the language and giving feedback, but the language is not stable yet.
+The project is exploring what changes when agents are primary users from day one: a language that can be learned on the fly, tooling that exposes structured facts for debugging and repair, and a standard library broad enough that most programs do not start with a dependency search.
+
+Zero is pre-1 and intentionally unstable. The project will make breaking changes while it searches for the language, library, and tooling patterns that work best for agents. Treat today's syntax and APIs as something to explore, not something to memorize. If that sounds useful, try it with us: run examples, inspect the structured output, and send feedback about what helps agents work better.
+
+Security vulnerabilities should be expected. Zero is not ready for production systems, sensitive data, or trusted infrastructure. If you plan to run or develop Zero, do so in an isolated, disposable environment.
+
+## What Zero Is Aiming For
+
+- Agent-first learnability: a small, regular language surface that agents can pick up quickly from examples, docs, and compiler feedback.
+- Standard-library depth: common capabilities should live in documented, coherent library APIs instead of scattered dependency stacks.
+- Deterministic tooling: diagnostics, graph facts, size reports, explanations, and fix plans should be structured enough for agents to inspect and act on.
+- Direct developer experience: checking, running, formatting, inspecting, and repairing code should be fast, copyable, and scriptable.
+- Regularity over syntax: prefer one obvious way to express most things, even when that makes code more explicit than a human might choose in another language.
 
 ## Quick Start
 
@@ -32,19 +44,6 @@ Expected output:
 math works
 ```
 
-## Learn Zero
-
-- `docs-site/articles/getting-started.md`: build the compiler and run a first program.
-- `docs-site/articles/learn-zero.md`: a practical tour of the language.
-- `docs-site/articles/language-reference.md`: syntax and behavior reference.
-- `examples/README.md`: examples grouped by concept.
-
-Run the docs site locally:
-
-```bash
-npm run docs:dev
-```
-
 ## Common Commands
 
 ```bash
@@ -72,13 +71,3 @@ Benchmarks run locally by default:
 ```bash
 npm run bench
 ```
-
-## Repository Layout
-
-- `native/zero-c/`: native compiler implementation.
-- `compiler-zero/`: Zero-authored compiler sources.
-- `examples/`: runnable Zero source examples.
-- `conformance/`: language and CLI behavior fixtures.
-- `docs-site/`: documentation site.
-- `tests/`: TypeScript tests for CLI behavior.
-- `extensions/vscode/`: editor syntax highlighting for `.0` files.

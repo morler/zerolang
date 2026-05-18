@@ -6,12 +6,12 @@ import { getStarCount } from "@/lib/github";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://zerolang.ai";
 const SITE_DESCRIPTION =
-  "Zero is the programming language for agents: a systems language with explicit effects, predictable memory, and structured tooling.";
+  "Zero is a pre-1 agent-first language experiment. Expect breaking changes and run it only in safe, non-production environments.";
 
 export const metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Zero — The programming language for agents.",
+    default: "Zero - Agent-first language experiment.",
     template: "%s | Zero",
   },
   description: SITE_DESCRIPTION,
@@ -20,13 +20,13 @@ export const metadata = {
     locale: "en_US",
     url: SITE_URL,
     siteName: "Zero",
-    title: "Zero — The programming language for agents.",
+    title: "Zero - Agent-first language experiment.",
     description: SITE_DESCRIPTION,
     images: [{ url: "/og", width: 1200, height: 630, alt: "Zero" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Zero — The programming language for agents.",
+    title: "Zero - Agent-first language experiment.",
     description: SITE_DESCRIPTION,
     images: ["/og"],
   },

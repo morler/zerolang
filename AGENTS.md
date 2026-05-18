@@ -1,7 +1,35 @@
 # Contributor Notes
 
-Zero is the programming language for agents. Keep public-facing changes honest
-about what works today without weakening that positioning.
+Zero is a pre-1 experiment in building an agent-first programming language.
+Keep public-facing changes honest about what works today without weakening that
+positioning.
+
+## Project Direction
+
+Zero is still being shaped around the needs of agents. Breaking changes are
+acceptable when they move the language, standard library, compiler, or tooling
+closer to that goal.
+
+Do not preserve legacy behavior by default. Prefer the clearer agent-facing
+design over compatibility shims, migration layers, or carrying old paths
+forward. Keep examples, docs, tests, and command contracts aligned with the new
+behavior so the repository describes one coherent current system.
+
+This does not mean broad churn for its own sake. Make direct changes that
+advance Zero's agent-first goals: on-the-fly learnability, deterministic
+inspection and repair, strong standard-library coverage, exceptional developer
+experience, and regular patterns over syntactic convenience.
+
+## Safety Expectations
+
+Security vulnerabilities should be expected. Zero is not ready for production
+systems, sensitive data, or trusted infrastructure.
+
+Run and develop Zero in safe environments: isolated workspaces, disposable
+inputs, and systems where compiler crashes, malformed output, or unsafe runtime
+behavior cannot damage production state. Treat generated artifacts and examples
+as experimental unless they have been reviewed for the specific environment
+where they will run.
 
 ## Development
 

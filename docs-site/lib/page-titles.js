@@ -5,7 +5,7 @@ const DOCS_TITLES = Object.fromEntries(
 );
 
 export const PAGE_TITLES = {
-  "": "The programming language\nfor agents.",
+  "": "An agent-first language experiment.",
   ...DOCS_TITLES,
 };
 

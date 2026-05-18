@@ -3,7 +3,7 @@ import { findDocByPath } from "./docs.js";
 
 const SITE_NAME = "Zero";
 const DESCRIPTION =
-  "Zero is a systems language that compiles to sub-10 KiB binaries, rebuilds in milliseconds, and gives AI agents structured diagnostics, typed fixes, and machine-readable docs.";
+  "Zero is a pre-1 agent-first language experiment. Expect breaking changes and run it only in safe, non-production environments.";
 
 export function pageMetadata(slug) {
   const title = PAGE_TITLES[slug];

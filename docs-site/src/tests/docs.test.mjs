@@ -170,7 +170,9 @@ describe("docs registry", () => {
       assert.match(examples, new RegExp(webTerm, "i"));
     }
     const homePage = await readFile(join(docsSiteRoot, "app/page.jsx"), "utf8");
-    assert.match(homePage, /Check, build, test, format, inspect, and document/);
+    assert.match(homePage, /The programming language\s+<br \/>\s+for agents/);
+    assert.match(homePage, /standard-library\s+first/);
+    assert.match(homePage, /Agent-readable tooling/);
     assert.match(homePage, /InstallCopy/);
     const installCopy = await readFile(join(docsSiteRoot, "components/install-copy.jsx"), "utf8");
     assert.match(installCopy, /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
