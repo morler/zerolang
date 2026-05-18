@@ -769,6 +769,10 @@ void zbuf_append_char(ZBuf *buf, char ch);
 void zbuf_appendf(ZBuf *buf, const char *fmt, ...);
 void zbuf_free(ZBuf *buf);
 
+void *z_checked_malloc(size_t size);
+void *z_checked_calloc(size_t count, size_t item_size);
+void *z_checked_reallocarray(void *ptr, size_t count, size_t item_size);
+size_t z_grow_capacity(size_t current, size_t required, size_t initial);
 char *z_strdup(const char *text);
 char *z_strndup(const char *text, size_t len);
 char *z_read_file(const char *path, ZDiag *diag);

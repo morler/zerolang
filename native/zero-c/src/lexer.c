@@ -7,8 +7,8 @@
 
 static void push_token(TokenVec *vec, Token token) {
   if (vec->len + 1 > vec->cap) {
-    vec->cap = vec->cap == 0 ? 64 : vec->cap * 2;
-    vec->items = realloc(vec->items, vec->cap * sizeof(Token));
+    vec->cap = z_grow_capacity(vec->cap, vec->len + 1, 64);
+    vec->items = z_checked_reallocarray(vec->items, vec->cap, sizeof(Token));
   }
   vec->items[vec->len++] = token;
 }

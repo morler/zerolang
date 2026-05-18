@@ -3,11 +3,55 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+
+static void z_allocation_fatal(const char *operation) {
+  fprintf(stderr, "zero: fatal: out of memory while %s\n", operation ? operation : "allocating memory");
+  exit(70);
+}
+
+static size_t z_checked_allocation_size(size_t count, size_t item_size, const char *operation) {
+  if (count == 0 || item_size == 0) return 1;
+  if (count > SIZE_MAX / item_size) z_allocation_fatal(operation);
+  return count * item_size;
+}
+
+void *z_checked_malloc(size_t size) {
+  void *ptr = malloc(size == 0 ? 1 : size);
+  if (!ptr) z_allocation_fatal("allocating memory");
+  return ptr;
+}
+
+void *z_checked_calloc(size_t count, size_t item_size) {
+  size_t size = z_checked_allocation_size(count, item_size, "allocating memory");
+  void *ptr = calloc(1, size);
+  if (!ptr) z_allocation_fatal("allocating memory");
+  return ptr;
+}
+
+void *z_checked_reallocarray(void *ptr, size_t count, size_t item_size) {
+  size_t size = z_checked_allocation_size(count, item_size, "growing memory");
+  void *next = realloc(ptr, size);
+  if (!next) z_allocation_fatal("growing memory");
+  return next;
+}
+
+size_t z_grow_capacity(size_t current, size_t required, size_t initial) {
+  size_t next = current == 0 ? (initial == 0 ? 1 : initial) : current;
+  while (next < required) {
+    if (next > SIZE_MAX / 2) {
+      next = required;
+      break;
+    }
+    next *= 2;
+  }
+  return next;
+}
 
 void zbuf_init(ZBuf *buf) {
   buf->data = NULL;
@@ -16,10 +60,11 @@ void zbuf_init(ZBuf *buf) {
 }
 
 void zbuf_append_char(ZBuf *buf, char ch) {
-  if (buf->len + 2 > buf->cap) {
-    size_t next = buf->cap == 0 ? 64 : buf->cap * 2;
-    while (buf->len + 2 > next) next *= 2;
-    buf->data = realloc(buf->data, next);
+  if (buf->len > SIZE_MAX - 2) z_allocation_fatal("growing buffer");
+  size_t required = buf->len + 2;
+  if (required > buf->cap) {
+    size_t next = z_grow_capacity(buf->cap, required, 64);
+    buf->data = z_checked_reallocarray(buf->data, next, sizeof(char));
     buf->cap = next;
   }
   buf->data[buf->len++] = ch;
@@ -41,7 +86,7 @@ void zbuf_appendf(ZBuf *buf, const char *fmt, ...) {
     va_end(args);
     return;
   }
-  char *tmp = malloc((size_t)needed + 1);
+  char *tmp = z_checked_malloc((size_t)needed + 1);
   vsnprintf(tmp, (size_t)needed + 1, fmt, args);
   va_end(args);
   zbuf_append(buf, tmp);
@@ -61,7 +106,8 @@ char *z_strdup(const char *text) {
 }
 
 char *z_strndup(const char *text, size_t len) {
-  char *copy = malloc(len + 1);
+  if (len == SIZE_MAX) z_allocation_fatal("copying string");
+  char *copy = z_checked_malloc(len + 1);
   memcpy(copy, text, len);
   copy[len] = 0;
   return copy;
@@ -91,8 +137,13 @@ char *z_read_file(const char *path, ZDiag *diag) {
   }
   fseek(file, 0, SEEK_END);
   long size = ftell(file);
+  if (size < 0) {
+    diag_io(diag, path, "read");
+    fclose(file);
+    return NULL;
+  }
   rewind(file);
-  char *data = malloc((size_t)size + 1);
+  char *data = z_checked_malloc((size_t)size + 1);
   size_t read = fread(data, 1, (size_t)size, file);
   fclose(file);
   data[read] = 0;
