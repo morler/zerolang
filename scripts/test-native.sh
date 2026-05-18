@@ -18,6 +18,34 @@ make -C native/zero-c
 
 mkdir -p .zero/native-test .zero/conformance
 
+host_runtime_target=""
+case "$(uname -s):$(uname -m)" in
+  Darwin:arm64) host_runtime_target="darwin-arm64" ;;
+  Linux:x86_64) host_runtime_target="linux-x64" ;;
+esac
+
+if [[ -n "$host_runtime_target" ]] && command -v cc >/dev/null 2>&1; then
+  runtime_cwd_dir="/tmp/zero-runtime-cwd-$$"
+  runtime_cwd_out="$runtime_cwd_dir/std-json-bytes"
+  rm -rf "$runtime_cwd_dir"
+  mkdir -p "$runtime_cwd_dir"
+  (
+    cd "$runtime_cwd_dir"
+    "$root/.zero/bin/zero" build --json --emit exe --target "$host_runtime_target" "$root/conformance/native/pass/std-json-bytes.0" --out "$runtime_cwd_out" > "$runtime_cwd_out.json"
+  )
+  set +e
+  "$runtime_cwd_out"
+  runtime_cwd_status=$?
+  set -e
+  test "$runtime_cwd_status" = "0"
+  test ! -f "$runtime_cwd_out.zero.o"
+  test ! -f "$runtime_cwd_out.zero-runtime.o"
+  test ! -f "$runtime_cwd_out.zero-runtime.o.zero_runtime.c"
+  test ! -e "$runtime_cwd_out.zero-runtime.o.include"
+  node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.generatedCBytes!==0 || report.objectBackend.linking.targetLibraries!=="zero-runtime" || report.objectBackend.linking.externalToolchain!=="cc" || !report.objectBackend.linkerPlan.staticLibraries.includes("zero_runtime.o") || report.objectBackend.directFacts.runtimeHelperCount!==1) process.exit(1);' "$runtime_cwd_out.json"
+  rm -rf "$runtime_cwd_dir"
+fi
+
 expected_output() {
   case "$1" in
     examples/hello.0) printf "hello from zero" ;;

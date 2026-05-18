@@ -23,6 +23,8 @@
 
 #define ZERO_VERSION "0.1.2"
 
+#include "embedded_runtime_sources.inc"
+
 typedef enum {
   EMIT_C,
   EMIT_EXE,
@@ -311,26 +313,120 @@ static bool command_succeeds(const char *command) {
   return system(command) == 0;
 }
 
+typedef struct {
+  char *source_file;
+  char *include_dir;
+  char *header_file;
+} RuntimeCompileInputs;
+
+static char *runtime_path_with_suffix(const char *path, const char *suffix) {
+  ZBuf buf;
+  zbuf_init(&buf);
+  zbuf_append(&buf, path ? path : "");
+  zbuf_append(&buf, suffix ? suffix : "");
+  return buf.data;
+}
+
+static char *runtime_join_path(const char *left, const char *right) {
+  ZBuf buf;
+  zbuf_init(&buf);
+  zbuf_append(&buf, left ? left : "");
+  if (buf.len > 0 && buf.data[buf.len - 1] != '/' && buf.data[buf.len - 1] != '\\') zbuf_append_char(&buf, '/');
+  zbuf_append(&buf, right ? right : "");
+  return buf.data;
+}
+
+static bool runtime_make_dir(const char *path, ZDiag *diag) {
+#if defined(_WIN32)
+  int rc = mkdir(path);
+#else
+  int rc = mkdir(path, 0777);
+#endif
+  if (rc == 0 || errno == EEXIST) return true;
+  if (diag) {
+    diag->code = 2002;
+    diag->path = path;
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "failed to create runtime compile directory '%s': %s", path, strerror(errno));
+    snprintf(diag->help, sizeof(diag->help), "choose a writable output path");
+  }
+  return false;
+}
+
+static void runtime_compile_inputs_free(RuntimeCompileInputs *inputs) {
+  if (!inputs) return;
+  if (inputs->source_file) remove(inputs->source_file);
+  if (inputs->header_file) remove(inputs->header_file);
+  if (inputs->include_dir) rmdir(inputs->include_dir);
+  free(inputs->source_file);
+  free(inputs->include_dir);
+  free(inputs->header_file);
+  *inputs = (RuntimeCompileInputs){0};
+}
+
+static bool write_runtime_chunks_file(const char *path, const char *const *chunks, ZDiag *diag) {
+  if (!path || !chunks) return false;
+  ZBuf text;
+  zbuf_init(&text);
+  for (size_t i = 0; chunks[i]; i++) zbuf_append(&text, chunks[i]);
+  bool ok = z_write_file(path, text.data ? text.data : "", diag);
+  zbuf_free(&text);
+  return ok;
+}
+
+static void runtime_diag_preserve_path(ZDiag *diag) {
+  if (diag && diag->path) diag->path = z_strdup(diag->path);
+}
+
+static bool write_runtime_compile_inputs(
+  const char *runtime_object_file,
+  const char *source_suffix,
+  const char *const *source_chunks,
+  RuntimeCompileInputs *out,
+  ZDiag *diag
+) {
+  if (!runtime_object_file || !source_suffix || !source_chunks || !out) return false;
+  *out = (RuntimeCompileInputs){0};
+  out->source_file = runtime_path_with_suffix(runtime_object_file, source_suffix);
+  out->include_dir = runtime_path_with_suffix(runtime_object_file, ".include");
+  out->header_file = runtime_join_path(out->include_dir, "zero_runtime.h");
+  if (!out->source_file || !out->include_dir || !out->header_file) {
+    runtime_compile_inputs_free(out);
+    return false;
+  }
+  if (!runtime_make_dir(out->include_dir, diag) ||
+      !write_runtime_chunks_file(out->header_file, zero_embedded_zero_runtime_h, diag) ||
+      !write_runtime_chunks_file(out->source_file, source_chunks, diag)) {
+    runtime_diag_preserve_path(diag);
+    runtime_compile_inputs_free(out);
+    return false;
+  }
+  return true;
+}
+
 static bool compile_zero_runtime_object(const char *runtime_object_file, const Command *command, ZDiag *diag) {
   const char *cc = command && command->cc ? command->cc : "cc";
-  const char *runtime_source = "native/zero-c/runtime/zero_runtime.c";
-  const char *runtime_include = "native/zero-c/include";
+  RuntimeCompileInputs inputs = {0};
+  if (!write_runtime_compile_inputs(runtime_object_file, ".zero_runtime.c", zero_embedded_zero_runtime_c, &inputs, diag)) return false;
   ZBuf cmd;
   zbuf_init(&cmd);
   zbuf_appendf(&cmd, "'%s' -std=c11 -Wall -Wextra -Wpedantic -I '%s' -c '%s' -o '%s'",
                cc,
-               runtime_include,
-               runtime_source,
+               inputs.include_dir,
+               inputs.source_file,
                runtime_object_file);
   bool ok = system(cmd.data) == 0;
   zbuf_free(&cmd);
+  runtime_compile_inputs_free(&inputs);
   if (!ok && diag) {
     diag->code = 2003;
     diag->line = 1;
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "host runtime object build failed");
-    snprintf(diag->expected, sizeof(diag->expected), "C compiler can compile native/zero-c/runtime/zero_runtime.c");
+    snprintf(diag->expected, sizeof(diag->expected), "C compiler can compile the embedded Zero runtime source");
     snprintf(diag->actual, sizeof(diag->actual), "runtime object compile command failed");
     snprintf(diag->help, sizeof(diag->help), "install a host C compiler or pass --cc for the runtime link plan");
   }
@@ -339,24 +435,25 @@ static bool compile_zero_runtime_object(const char *runtime_object_file, const C
 
 static bool compile_zero_http_curl_object(const char *runtime_object_file, const Command *command, ZDiag *diag) {
   const char *cc = command && command->cc ? command->cc : "cc";
-  const char *runtime_source = "native/zero-c/runtime/zero_http_curl.c";
-  const char *runtime_include = "native/zero-c/include";
+  RuntimeCompileInputs inputs = {0};
+  if (!write_runtime_compile_inputs(runtime_object_file, ".zero_http_curl.c", zero_embedded_zero_http_curl_c, &inputs, diag)) return false;
   ZBuf cmd;
   zbuf_init(&cmd);
   zbuf_appendf(&cmd, "'%s' -std=c11 -Wall -Wextra -Wpedantic -I '%s' -c '%s' -o '%s'",
                cc,
-               runtime_include,
-               runtime_source,
+               inputs.include_dir,
+               inputs.source_file,
                runtime_object_file);
   bool ok = system(cmd.data) == 0;
   zbuf_free(&cmd);
+  runtime_compile_inputs_free(&inputs);
   if (!ok && diag) {
     diag->code = 2003;
     diag->line = 1;
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "HTTP runtime provider build failed");
-    snprintf(diag->expected, sizeof(diag->expected), "C compiler can compile native/zero-c/runtime/zero_http_curl.c");
+    snprintf(diag->expected, sizeof(diag->expected), "C compiler can compile the embedded HTTP provider source");
     snprintf(diag->actual, sizeof(diag->actual), "HTTP provider compile command failed");
     snprintf(diag->help, sizeof(diag->help), "install libcurl headers or pass --cc for the runtime link plan");
   }

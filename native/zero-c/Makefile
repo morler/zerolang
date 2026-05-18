@@ -6,7 +6,7 @@ BUILD_STAMP := $(OUT).build
 HOST_ID := $(shell uname -s 2>/dev/null || echo unknown)-$(shell uname -m 2>/dev/null || echo unknown)
 BUILD_ID := $(HOST_ID)|$(CC)|$(CFLAGS)
 SRC := $(wildcard src/*.c)
-INCLUDES := $(wildcard include/*.h)
+INCLUDES := $(wildcard include/*.h) $(wildcard src/*.inc)
 
 .PHONY: all clean install-local FORCE
 

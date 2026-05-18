@@ -7338,7 +7338,7 @@ static bool is_builtin_type_name(const char *name) {
     "Void", "Bool", "bool", "String", "char", "Type",
     "World", "WorldStream", "Fs", "File", "ByteBuf", "NullAlloc", "FixedBufAlloc", "PageAlloc", "GeneralAlloc",
     "Vec", "Map", "Set", "Duration", "RandSource", "ProcStatus", "Address", "Net", "Conn", "Listener",
-    "HttpMethod", "HttpClient", "HttpServer", "HttpResult", "HttpHeaderValue", "JsonDoc", "BufferedReader", "BufferedWriter",
+    "HttpMethod", "HttpClient", "HttpServer", "HttpResult", "HttpError", "HttpHeaderValue", "JsonDoc", "BufferedReader", "BufferedWriter",
     "Request", "Response", "Env", "Args", "Clock", "Rand", "Proc", "Alloc",
     "Maybe", "Span", "MutSpan", "ref", "mutref", "owned",
     NULL
