@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 

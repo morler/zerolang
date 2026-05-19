@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -475,8 +475,9 @@ function buildReport(results, environment, runner) {
     measurements: buildMeasurementCoverage(results),
     results,
   };
-  report.trendSummary = buildBenchmarkTrendSummary(report);
-  return report;
+  const typedReport = report as any;
+  typedReport.trendSummary = buildBenchmarkTrendSummary(report);
+  return typedReport;
 }
 
 function buildBenchmarkTrendSummary(report) {
@@ -897,7 +898,14 @@ async function runSandboxLanguageGroup(Sandbox, snapshot, group, index) {
     await runSandboxCommand(sandbox, { cmd: "true" }, `${group.language} benchmark sandbox warmup`);
     const command = {
       cmd: "node",
-      args: ["scripts/bench.mjs", "--worker", "--jobs", encodeJobs(group.jobs)],
+      args: [
+        "--experimental-strip-types",
+        "--disable-warning=ExperimentalWarning",
+        "scripts/bench.mts",
+        "--worker",
+        "--jobs",
+        encodeJobs(group.jobs),
+      ],
       cwd: snapshot.projectDir,
       env: sandboxEnv(),
     };

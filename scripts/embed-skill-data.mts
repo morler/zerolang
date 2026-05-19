@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,16 @@ const inputs = [
     .map((name) => `skill-data/${name}`),
 ];
 
-function parseFrontmatter(text, relativePath) {
+type EmbeddedSkill = {
+  name: string;
+  description: string;
+  hidden: boolean;
+  relativePath: string;
+  text: string;
+  ident?: string;
+};
+
+function parseFrontmatter(text, relativePath): Omit<EmbeddedSkill, "relativePath" | "text" | "ident"> {
   const match = text.trimStart().match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) throw new Error(`${relativePath}: missing skill frontmatter`);
 
@@ -68,13 +77,13 @@ function cIdent(text) {
   return text.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
-const skills = inputs.map((relativePath) => {
+const skills: EmbeddedSkill[] = inputs.map((relativePath) => {
   const text = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
   return { ...parseFrontmatter(text, relativePath), relativePath, text };
 }).sort((a, b) => a.name.localeCompare(b.name));
 
 const out = [];
-out.push("/* Generated from Zero skill data. Run node scripts/embed-skill-data.mjs to refresh. */");
+out.push("/* Generated from Zero skill data. Run node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-skill-data.mts to refresh. */");
 out.push("#ifndef ZERO_EMBEDDED_SKILLS_INC");
 out.push("#define ZERO_EMBEDDED_SKILLS_INC");
 out.push("");

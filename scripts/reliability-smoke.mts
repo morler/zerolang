@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -26,7 +26,7 @@ async function run(args, { allowFailure = false } = {}) {
   }
 }
 
-async function json(args, options) {
+async function json(args, options = {}) {
   const result = await run(args, options);
   return { ...result, body: JSON.parse(result.stdout) };
 }

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,7 +36,7 @@ function chunkText(text) {
 }
 
 const out = [];
-out.push("/* Generated from Zero runtime sources. Run node scripts/embed-runtime-sources.mjs to refresh. */");
+out.push("/* Generated from Zero runtime sources. Run node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-runtime-sources.mts to refresh. */");
 out.push("#ifndef ZERO_EMBEDDED_RUNTIME_SOURCES_INC");
 out.push("#define ZERO_EMBEDDED_RUNTIME_SOURCES_INC");
 out.push("");

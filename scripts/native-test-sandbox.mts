@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +14,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
 Usage:
   pnpm run native:test:sandbox
-  node scripts/native-test-sandbox.mjs -- pnpm run conformance
+  node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/native-test-sandbox.mts -- pnpm run conformance
 
 Environment:
   ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_ID       Reuse a prepared native-test snapshot

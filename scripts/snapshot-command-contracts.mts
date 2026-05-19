@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -13,7 +13,7 @@ if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST
 const outDir = ".zero/command-contracts";
 mkdirSync(outDir, { recursive: true });
 
-function zero(args, options = {}) {
+function zero(args, options: { allowFailure?: boolean } = {}) {
   try {
     const stdout = execFileSync("bin/zero", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     return { code: 0, stdout };
@@ -234,7 +234,7 @@ for (const [command, expected] of [
   [["size", "--help"], /Usage: zero size/],
   [["explain", "--help"], /Usage: zero explain/],
   [["fix", "--help"], /Usage: zero fix/],
-]) {
+] as Array<[string[], RegExp]>) {
   assert.match(zero(command).stdout, expected);
 }
 

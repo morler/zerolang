@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -388,7 +388,8 @@ function startServer() {
   let buffer = Buffer.alloc(0);
   const send = (method, params) => sendMessage({ jsonrpc: "2.0", method, params });
   process.stdin.on("data", async (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
+    const data = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    buffer = Buffer.concat([buffer, data]);
     while (true) {
       const headerEnd = buffer.indexOf("\r\n\r\n");
       if (headerEnd < 0) return;
