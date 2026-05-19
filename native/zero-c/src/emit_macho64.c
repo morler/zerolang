@@ -396,6 +396,10 @@ static bool macho_type_is_scalar64(IrTypeKind type) {
   return type == IR_TYPE_I64 || type == IR_TYPE_U64;
 }
 
+static bool macho_type_is_unsigned(IrTypeKind type) {
+  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_U32 || type == IR_TYPE_U64;
+}
+
 static bool macho_type_is_scalar(IrTypeKind type) {
   return macho_type_is_scalar32(type) || macho_type_is_scalar64(type);
 }
@@ -423,10 +427,16 @@ static void macho_emit_movz_w(ZBuf *text, unsigned reg, uint32_t literal) {
   }
 }
 
-static void macho_emit_movz_x(ZBuf *text, unsigned reg, uint32_t literal) {
-  append_u32le(text, 0xd2800000u | ((literal & 0xffffu) << 5) | (reg & 31u));
+static void macho_emit_movz_x(ZBuf *text, unsigned reg, uint64_t literal) {
+  append_u32le(text, 0xd2800000u | ((uint32_t)(literal & 0xffffu) << 5) | (reg & 31u));
   if (literal > 0xffffu) {
-    append_u32le(text, 0xf2a00000u | (((literal >> 16) & 0xffffu) << 5) | (reg & 31u));
+    append_u32le(text, 0xf2a00000u | ((uint32_t)((literal >> 16) & 0xffffu) << 5) | (reg & 31u));
+  }
+  if (literal > 0xffffffffu) {
+    append_u32le(text, 0xf2c00000u | ((uint32_t)((literal >> 32) & 0xffffu) << 5) | (reg & 31u));
+  }
+  if (literal > 0xffffffffffffu) {
+    append_u32le(text, 0xf2e00000u | ((uint32_t)((literal >> 48) & 0xffffu) << 5) | (reg & 31u));
   }
 }
 
@@ -527,14 +537,25 @@ static void macho_emit_store_field(ZBuf *text, const IrFunction *fun, unsigned r
   }
 }
 
-static void macho_emit_binary_w(ZBuf *text, IrBinaryOp op, unsigned dst, unsigned lhs, unsigned rhs) {
+static void macho_emit_binary_reg(ZBuf *text, IrBinaryOp op, unsigned dst, unsigned lhs, unsigned rhs, bool wide) {
+  uint32_t sf = wide ? 0x80000000u : 0;
   if (op == IR_BIN_ADD) {
-    append_u32le(text, 0x0b000000u | ((rhs & 31u) << 16) | ((lhs & 31u) << 5) | (dst & 31u));
+    append_u32le(text, sf | 0x0b000000u | ((rhs & 31u) << 16) | ((lhs & 31u) << 5) | (dst & 31u));
   } else if (op == IR_BIN_SUB) {
-    append_u32le(text, 0x4b000000u | ((rhs & 31u) << 16) | ((lhs & 31u) << 5) | (dst & 31u));
+    append_u32le(text, sf | 0x4b000000u | ((rhs & 31u) << 16) | ((lhs & 31u) << 5) | (dst & 31u));
   } else if (op == IR_BIN_MUL) {
-    append_u32le(text, 0x1b000000u | ((rhs & 31u) << 16) | (31u << 10) | ((lhs & 31u) << 5) | (dst & 31u));
+    append_u32le(text, sf | 0x1b000000u | ((rhs & 31u) << 16) | (31u << 10) | ((lhs & 31u) << 5) | (dst & 31u));
   }
+}
+
+static void macho_emit_div_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs, bool is_unsigned, bool wide) {
+  uint32_t sf = wide ? 0x80000000u : 0;
+  append_u32le(text, sf | (is_unsigned ? 0x1ac00800u : 0x1ac00c00u) | ((rhs & 31u) << 16) | ((lhs & 31u) << 5) | (dst & 31u));
+}
+
+static void macho_emit_msub_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs, unsigned acc, bool wide) {
+  uint32_t sf = wide ? 0x80000000u : 0;
+  append_u32le(text, sf | 0x1b008000u | ((rhs & 31u) << 16) | ((acc & 31u) << 10) | ((lhs & 31u) << 5) | (dst & 31u));
 }
 
 static void macho_emit_cmp_w(ZBuf *text, unsigned lhs, unsigned rhs) {
@@ -970,7 +991,7 @@ static bool macho_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const
       if (!macho_emit_store_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
       if (!macho_emit_value_to_reg_at(text, fun, view->index, tmp, frame_size, scratch_slot + 1, ctx, diag)) return false;
       if (!macho_emit_load_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
-      macho_emit_binary_w(text, IR_BIN_SUB, reg, reg, tmp);
+      macho_emit_binary_reg(text, IR_BIN_SUB, reg, reg, tmp, false);
       return true;
     }
   }
@@ -1044,7 +1065,7 @@ static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const 
   switch (value->kind) {
     case IR_VALUE_BOOL:
     case IR_VALUE_INT:
-      if (macho_type_is_scalar64(value->type)) macho_emit_movz_x(text, reg, (uint32_t)value->int_value);
+      if (macho_type_is_scalar64(value->type)) macho_emit_movz_x(text, reg, (uint64_t)value->int_value);
       else macho_emit_movz_w(text, reg, (uint32_t)value->int_value);
       return true;
     case IR_VALUE_LOCAL:
@@ -1085,12 +1106,21 @@ static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const 
         macho_patch_branch26(text, right_true_end, text->len);
         return true;
       }
-      if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL) return macho_diag_at(diag, "direct AArch64 Mach-O binary operator is unsupported", value->line, value->column, "unsupported operator");
+      if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL &&
+          value->binary_op != IR_BIN_DIV && value->binary_op != IR_BIN_MOD) return macho_diag_at(diag, "direct AArch64 Mach-O binary operator is unsupported", value->line, value->column, "unsupported operator");
       if (!macho_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
       if (!macho_emit_store_scratch(text, 8, value->left ? value->left->type : IR_TYPE_I32, scratch_slot, value->left, diag)) return false;
       if (!macho_emit_value_to_reg_at(text, fun, value->right, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
       if (!macho_emit_load_scratch(text, 8, value->left ? value->left->type : IR_TYPE_I32, scratch_slot, value->left, diag)) return false;
-      macho_emit_binary_w(text, value->binary_op, reg, 8, 9);
+      bool wide = macho_type_is_scalar64(value->type);
+      if (value->binary_op == IR_BIN_DIV) {
+        macho_emit_div_reg(text, reg, 8, 9, macho_type_is_unsigned(value->type), wide);
+      } else if (value->binary_op == IR_BIN_MOD) {
+        macho_emit_div_reg(text, 10, 8, 9, macho_type_is_unsigned(value->type), wide);
+        macho_emit_msub_reg(text, reg, 10, 9, 8, wide);
+      } else {
+        macho_emit_binary_reg(text, value->binary_op, reg, 8, 9, wide);
+      }
       return true;
     case IR_VALUE_COMPARE: {
       if (!value->left || !value->right) {
@@ -1450,7 +1480,7 @@ static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *i
       macho_emit_load_local_w(text, fun, 8, instr->value->local_index, 12, frame_size);
       macho_emit_load_local_w(text, fun, 9, instr->value->local_index, 8, frame_size);
       macho_emit_add_w_imm(text, 11, 8, 0);
-      macho_emit_binary_w(text, IR_BIN_ADD, 11, 11, 10);
+      macho_emit_binary_reg(text, IR_BIN_ADD, 11, 11, 10, false);
       macho_emit_cmp_w(text, 11, 9);
       size_t ok_patch = macho_emit_b_cond_placeholder(text, 9); // unsigned lower or same
       macho_emit_movz_w(text, 8, 0);
@@ -1474,7 +1504,7 @@ static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *i
       if (instr->value->kind == IR_VALUE_MAYBE_SCALAR_LITERAL) {
         macho_emit_movz_w(text, 8, instr->value->data_len ? 1u : 0u);
         macho_emit_store_local_w(text, fun, 8, instr->local_index, 0, frame_size);
-        macho_emit_movz_x(text, 8, (uint32_t)instr->value->int_value);
+        macho_emit_movz_x(text, 8, (uint64_t)instr->value->int_value);
         macho_emit_store_local_x(text, fun, 8, instr->local_index, 8, frame_size);
         return true;
       }
@@ -1487,7 +1517,7 @@ static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *i
         size_t fail = macho_emit_b_cond_placeholder(text, 11); // signed less than
         macho_emit_load_local_w(text, fun, 9, instr->value->local_index, 12, frame_size);
         macho_emit_mov_w(text, 10, 8);
-        macho_emit_binary_w(text, IR_BIN_ADD, 11, 9, 10);
+        macho_emit_binary_reg(text, IR_BIN_ADD, 11, 9, 10, false);
         macho_emit_load_local_w(text, fun, 12, instr->value->local_index, 8, frame_size);
         macho_emit_cmp_w(text, 11, 12);
         size_t overflow = macho_emit_b_cond_placeholder(text, 8); // unsigned higher

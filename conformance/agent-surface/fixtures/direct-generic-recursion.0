@@ -1,0 +1,8 @@
+fun loop<T>(value: T) -> Void {
+    loop<T>(value)
+}
+
+pub fun main(world: World) -> Void raises {
+    loop<i32>(1)
+    check world.out.write("direct generic recursion ok\n")
+}

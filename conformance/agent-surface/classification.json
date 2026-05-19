@@ -59,6 +59,54 @@
       "runner": "assert-diagnostic-code"
     },
     {
+      "id": "interface-method-generic-binding",
+      "path": "conformance/agent-surface/fixtures/interface-method-generic-binding.0",
+      "classification": "intended-behavior",
+      "currentBehavior": "check-pass",
+      "followUp": "Keep interface method generic binders independent from interface type parameters.",
+      "runner": "assert-check-pass"
+    },
+    {
+      "id": "direct-generic-recursion",
+      "path": "conformance/agent-surface/fixtures/direct-generic-recursion.0",
+      "classification": "intended-behavior",
+      "currentBehavior": "check-pass-target-ready",
+      "followUp": "Keep self-recursive generic call targets present in the direct backend function table.",
+      "runner": "assert-target-ready"
+    },
+    {
+      "id": "polymorphic-recursion-growth",
+      "path": "conformance/agent-surface/fixtures/polymorphic-recursion-growth.0",
+      "classification": "unsupported-language-feature",
+      "currentBehavior": "check-fail-TYP027",
+      "followUp": "Keep growing recursive generic instantiations bounded unless the type system grows full polymorphic recursion support.",
+      "runner": "assert-diagnostic-code"
+    },
+    {
+      "id": "mutual-polymorphic-recursion-growth",
+      "path": "conformance/agent-surface/fixtures/mutual-polymorphic-recursion-growth.0",
+      "classification": "unsupported-language-feature",
+      "currentBehavior": "check-fail-TYP027",
+      "followUp": "Keep mutually recursive growing generic instantiations bounded unless the type system grows full polymorphic recursion support.",
+      "runner": "assert-diagnostic-code"
+    },
+    {
+      "id": "mutual-polymorphic-recursion-inferred-growth",
+      "path": "conformance/agent-surface/fixtures/mutual-polymorphic-recursion-inferred-growth.0",
+      "classification": "unsupported-language-feature",
+      "currentBehavior": "check-fail-TYP027",
+      "followUp": "Keep inferred mutually recursive growing generic instantiations bounded unless the type system grows full polymorphic recursion support.",
+      "runner": "assert-diagnostic-code"
+    },
+    {
+      "id": "stdlib-signature-parity",
+      "path": "scripts/compiler-metrics.mts",
+      "classification": "metadata-drift-risk",
+      "currentBehavior": "report-only",
+      "followUp": "Use one standard-library signature and capability source for checker, CLI metadata, and lowering.",
+      "runner": "report-only"
+    },
+    {
       "id": "borrow-lexical-lifetime",
       "path": "conformance/agent-surface/fixtures/borrow-lexical-lifetime.0",
       "classification": "intended-behavior-with-diagnostic-trace",

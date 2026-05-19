@@ -3186,6 +3186,11 @@ static void ir_specialize_expr_types(Expr *expr, const Function *fun, const Type
     free(expr->resolved_type);
     expr->resolved_type = substituted;
   }
+  for (size_t i = 0; i < expr->type_args.len; i++) {
+    char *substituted = ir_specialize_type_text(expr->type_args.items[i].type, fun, type_args);
+    free(expr->type_args.items[i].type);
+    expr->type_args.items[i].type = substituted;
+  }
   ir_specialize_expr_types(expr->left, fun, type_args);
   ir_specialize_expr_types(expr->right, fun, type_args);
   for (size_t i = 0; i < expr->args.len; i++) ir_specialize_expr_types(expr->args.items[i], fun, type_args);
@@ -3294,10 +3299,8 @@ static void ir_lower_direct_backend_subset(IrProgram *ir, const Program *program
   for (size_t i = 0; i < program->functions.len; i++) {
     if (!program->functions.items[i].is_test && program->functions.items[i].type_params.len == 0) push_function_clone(&direct_functions, &program->functions.items[i]);
   }
-  for (size_t i = 0; i < program->functions.len; i++) {
-    if (!program->functions.items[i].is_test && program->functions.items[i].type_params.len == 0) {
-      ir_collect_generic_specializations_from_stmt_vec(&direct_functions, program, &program->functions.items[i].body);
-    }
+  for (size_t i = 0; i < direct_functions.len; i++) {
+    ir_collect_generic_specializations_from_stmt_vec(&direct_functions, program, &direct_functions.items[i].body);
   }
   IrFunctionOrder *order = z_checked_calloc(direct_functions.len ? direct_functions.len : 1, sizeof(IrFunctionOrder));
   char **stable_ids = z_checked_calloc(direct_functions.len ? direct_functions.len : 1, sizeof(char *));

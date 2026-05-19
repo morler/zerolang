@@ -139,6 +139,7 @@ The native compiler keeps stable codes for implemented control-flow and type rul
 - `TYP024`: generic inference found conflicting concrete types for one type parameter
 - `TYP025`: generic type arguments could not be inferred from local call arguments
 - `TYP026`: a type alias is duplicated, malformed, or cyclic
+- `TYP027`: recursive generic call changes type arguments
 - `PUB001`: a public declaration omitted required explicit API type metadata
 - `MET001`: a parsed `meta` expression requested compile-time behavior this compiler slice cannot evaluate yet
 - `IFC001`: an interface constraint is unknown or a concrete type argument is not a shape

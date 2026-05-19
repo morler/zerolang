@@ -1,0 +1,14 @@
+pub fun main(world: World) -> Void raises {
+    let text = "zero language"
+    let mut index: usize = 0
+    let mut found = 0 - 1
+    while index < 13 {
+        if text[index] == ('l' as u8) && found == 0 - 1 {
+            found = index as i32
+        }
+        index = index + 1
+    }
+    if found == 5 {
+        check world.out.write("string search ok\n")
+    }
+}

@@ -1,0 +1,20 @@
+interface Id {
+    fun id<X>(x: X) -> X
+}
+
+shape Identity {
+    fun id<X>(x: X) -> X {
+        return x
+    }
+}
+
+fun useId<F: Id, X>(value: X) -> X {
+    return F.id(value)
+}
+
+pub fun main(world: World) -> Void raises {
+    let value: i32 = useId<Identity, i32>(1)
+    if value == 1 {
+        check world.out.write("interface method generic ok\n")
+    }
+}
