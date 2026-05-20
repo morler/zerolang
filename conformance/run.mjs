@@ -399,6 +399,7 @@ for (const fixture of [
   "conformance/check/pass/generic-static-method-forwarding.0",
   "conformance/check/pass/generic-static-return-substitution.0",
   "conformance/check/pass/generic-static-wrapper-type-collision.0",
+  "conformance/check/pass/static-interface-return-substitution.0",
   "conformance/check/pass/generic-untyped-static-const-inference.0",
   "conformance/check/pass/generic-const-shadowing.0",
   "conformance/check/pass/generic-const-type-name-collision.0",
@@ -1491,6 +1492,35 @@ assert(interfaceMethodStaticRenamedBytes);
 const interfaceMethodStaticRenamedBytesWidth = interfaceMethodStaticRenamedBytes.methods.find((item) => item.name === "width");
 assert(interfaceMethodStaticRenamedBytesWidth);
 assert(interfaceMethodStaticRenamedBytesWidth.staticParams.some((item) => item.name === "M" && item.type === "usize" && item.staticDispatch === true));
+
+const staticInterfaceReturnMismatchFixture = `${outDir}/static-interface-return-mismatch.0`;
+await writeFile(staticInterfaceReturnMismatchFixture, `interface Sized<T, static N: usize> {
+    fun bytes(self: ref<T>) -> [N]u8
+}
+
+shape Bytes<static N: usize> {
+    items: [N]u8,
+
+    fun bytes(self: ref<Self>) -> [N]u8 {
+        return self.items
+    }
+}
+
+fun read<T: Sized<T,N>, static N: usize>(value: ref<T>) -> [N]u8 {
+    return T.bytes(value)
+}
+
+pub fun main() -> Void {
+    let bytes: Bytes<4> = Bytes { items: [1, 2, 3, 4] }
+    let out: [3]u8 = read<Bytes<4>,3>(&bytes)
+}
+`);
+const staticInterfaceReturnMismatchJson = await execFileAsync(zero, ["check", "--json", staticInterfaceReturnMismatchFixture]).catch((error) => error);
+assert.notEqual(staticInterfaceReturnMismatchJson.code, 0);
+const staticInterfaceReturnMismatchBody = JSON.parse(staticInterfaceReturnMismatchJson.stdout);
+assert.equal(staticInterfaceReturnMismatchBody.diagnostics[0].code, "IFC004");
+assert.match(staticInterfaceReturnMismatchBody.diagnostics[0].expected, /\[3\]u8/);
+assert.match(staticInterfaceReturnMismatchBody.diagnostics[0].actual, /\[4\]u8/);
 
 const shapeMethodGenericConstraintFixture = `${outDir}/shape-method-generic-constraint.0`;
 await writeFile(shapeMethodGenericConstraintFixture, `interface NeedsMethod<T> {
