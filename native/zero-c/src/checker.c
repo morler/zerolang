@@ -1971,6 +1971,7 @@ static bool type_is_generic_param(const Function *fun, const char *type) {
 }
 
 static char *type_substitute_generic(const char *type, GenericBinding *bindings, size_t binding_len);
+static char *type_substitute_interface_method_signature(const char *type, GenericBinding *interface_bindings, size_t interface_binding_len, const Function *required, const Function *method);
 static bool infer_generic_type_from_pattern(const Program *program, const Function *fun, const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len);
 
 static bool type_text_references_name(const char *type, const char *name) {
@@ -2417,7 +2418,7 @@ static bool normalize_static_bindings(const Program *program, const Function *fu
   return true;
 }
 
-static bool validate_interface_method_generic_params(const Program *program, const InterfaceDecl *interface, const Function *required, const Function *method, ZDiag *diag) {
+static bool validate_interface_method_generic_params(const Program *program, const InterfaceDecl *interface, GenericBinding *interface_bindings, size_t interface_binding_len, const Function *required, const Function *method, ZDiag *diag) {
   if (!required || !method) return true;
   if (method->type_params.len != required->type_params.len) {
     char expected[128];
@@ -2436,7 +2437,20 @@ static bool validate_interface_method_generic_params(const Program *program, con
       snprintf(message, sizeof(message), "interface method '%s.%s' generic parameter %zu kind does not match shape method", interface ? interface->name : "interface", required->name ? required->name : "method", i + 1);
       return set_diag_detail(diag, 3042, message, actual_param->line, actual_param->column, expected_param->is_static ? "static generic parameter" : "type generic parameter", actual_param->is_static ? "static generic parameter" : "type generic parameter", "use matching generic parameter kinds in the shape method implementation");
     }
-    if (!expected_param->is_static) continue;
+    if (!expected_param->is_static) {
+      char *expected_constraint = type_substitute_interface_method_signature(expected_param->type ? expected_param->type : "Type", interface_bindings, interface_binding_len, required, method);
+      const char *actual_constraint = actual_param->type ? actual_param->type : "Type";
+      bool constraints_match = types_compatible(program, expected_constraint, actual_constraint);
+      if (!constraints_match) {
+        char message[256];
+        snprintf(message, sizeof(message), "interface method '%s.%s' generic parameter %zu constraint does not match shape method", interface ? interface->name : "interface", required->name ? required->name : "method", i + 1);
+        bool diag_ok = set_diag_detail(diag, 3042, message, actual_param->line, actual_param->column, expected_constraint, actual_constraint, "use the same generic parameter constraint as the interface method");
+        free(expected_constraint);
+        return diag_ok;
+      }
+      free(expected_constraint);
+      continue;
+    }
     const char *expected_type = expected_param->type ? expected_param->type : "usize";
     const char *actual_type = actual_param->type ? actual_param->type : "usize";
     if (!types_compatible(program, expected_type, actual_type)) {
@@ -2686,7 +2700,7 @@ static bool validate_generic_constraints(const Program *program, const Function 
         free(interface_bindings);
         return set_diag_detail(diag, 3039, message, call->line, call->column, "matching static method on the concrete shape", "method not found", "add the required static method with the interface signature");
       }
-      if (!validate_interface_method_generic_params(program, interface, required, method, diag)) {
+      if (!validate_interface_method_generic_params(program, interface, interface_bindings, interface->type_params.len, required, method, diag)) {
         free_type_arg_list(constraint_args, constraint_arg_len);
         generic_bindings_free(interface_bindings, interface->type_params.len);
         free(interface_bindings);
@@ -8223,8 +8237,7 @@ static bool validate_type_param_names_do_not_shadow(const Program *program, cons
         return set_diag_detail(diag, 3008, "generic parameter shadows outer generic parameter", param->line, param->column, "distinct generic parameter name", actual, "rename the inner generic parameter");
       }
     }
-    if (param->is_static) continue;
-    if (outer_params) {
+    if (outer_params && !param->is_static) {
       for (size_t previous = 0; previous < outer_params->len; previous++) {
         const Param *outer = &outer_params->items[previous];
         if (!outer->name) continue;
@@ -8242,6 +8255,7 @@ static bool validate_type_param_names_do_not_shadow(const Program *program, cons
     if (strcmp(param->name, "Self") == 0) {
       return set_diag_detail(diag, 3008, "generic type parameter shadows Self type", param->line, param->column, "generic type parameter name other than Self", "'Self' is reserved for method Self types", "rename the generic parameter");
     }
+    if (param->is_static) continue;
     const char *kind = visible_concrete_type_name_kind(program, param->name);
     if (kind) {
       char actual[160];

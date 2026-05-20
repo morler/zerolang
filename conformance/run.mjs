@@ -1238,6 +1238,21 @@ pub fun main() -> Void {
 }
 `,
   },
+  {
+    name: "shape-method-static-self-param",
+    message: /generic type parameter shadows Self type/,
+    source: `shape Box {
+    value: u8,
+
+    fun value<static Self: usize>(self: ref<Self>) -> usize {
+        return Self
+    }
+}
+
+pub fun main() -> Void {
+}
+`,
+  },
 ];
 
 for (const fixtureCase of duplicateStaticGenericFixtures) {
@@ -1442,6 +1457,49 @@ assert.equal(interfaceMethodGenericConstraintBody.diagnostics[0].code, "IFC002")
 
 const interfaceMethodGenericMismatchFixtures = [
   {
+    name: "interface-method-generic-constraint-mismatch",
+    code: "IFC005",
+    message: /constraint does not match/,
+    source: `interface NeedsA<T> {
+    fun needA(self: ref<T>) -> u8
+}
+
+interface NeedsB<T> {
+    fun needB(self: ref<T>) -> u8
+}
+
+interface Caller<T> {
+    fun accept<U: NeedsA<U>>(self: ref<T>, item: U) -> u8
+}
+
+shape Box {
+    value: u8,
+
+    fun accept<U: NeedsB<U>>(self: ref<Self>, item: U) -> u8 {
+        return self.value
+    }
+}
+
+shape A {
+    value: u8,
+
+    fun needA(self: ref<Self>) -> u8 {
+        return self.value
+    }
+}
+
+fun read<T: Caller<T>>(value: ref<T>, item: A) -> u8 {
+    return T.accept<A>(value, item)
+}
+
+pub fun main() -> Void {
+    let box: Box = Box { value: 1 }
+    let a: A = A { value: 2 }
+    let out: u8 = read<Box>(&box, a)
+}
+`,
+  },
+  {
     name: "interface-method-missing-static-param",
     code: "IFC003",
     source: `interface Width<T> {
@@ -1525,6 +1583,7 @@ for (const fixtureCase of interfaceMethodGenericMismatchFixtures) {
   assert.notEqual(interfaceMethodGenericMismatchJson.code, 0);
   const interfaceMethodGenericMismatchBody = JSON.parse(interfaceMethodGenericMismatchJson.stdout);
   assert.equal(interfaceMethodGenericMismatchBody.diagnostics[0].code, fixtureCase.code);
+  if (fixtureCase.message) assert.match(interfaceMethodGenericMismatchBody.diagnostics[0].message, fixtureCase.message);
 }
 
 const staticUnsupportedTypeJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/static-value-unsupported-type.0"]).catch((error) => error);
