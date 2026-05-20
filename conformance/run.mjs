@@ -396,6 +396,7 @@ for (const fixture of [
   "conformance/check/pass/generic-array-inference.0",
   "conformance/check/pass/generic-static-forwarding.0",
   "conformance/check/pass/generic-static-method-forwarding.0",
+  "conformance/check/pass/generic-untyped-static-const-inference.0",
   "conformance/check/pass/generic-const-shadowing.0",
   "conformance/check/pass/generic-const-type-name-collision.0",
   "conformance/check/pass/generic-method-outer-param-inference.0",

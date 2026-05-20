@@ -204,7 +204,10 @@ static bool static_type_is_integer(const char *type) {
 }
 
 static bool static_type_compatible(const char *left, const char *right) {
-  return strcmp(static_type_or_default(left), static_type_or_default(right)) == 0;
+  left = static_type_or_default(left);
+  right = static_type_or_default(right);
+  if (static_type_is_integer(left) && static_type_is_integer(right)) return true;
+  return strcmp(left, right) == 0;
 }
 
 static bool static_symbol_matches_type(const ZStaticValue *value, const char *type) {

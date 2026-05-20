@@ -2787,10 +2787,27 @@ static bool static_const_name_is_ambiguous_type_arg(const Program *program, cons
   return visible_concrete_type_name_kind(program, name) != NULL;
 }
 
+static const char *type_core_static_const_type(const Program *program, const ConstDecl *item) {
+  if (!program || !item || !item->name) return NULL;
+  StaticValue value = {0};
+  if (!static_value_from_text(program, item->name, &value)) return NULL;
+  if (item->type) {
+    if (!is_static_value_param_type(program, item->type)) return NULL;
+    return static_value_matches_type(program, &value, item->type) ? item->type : NULL;
+  }
+  if (value.kind == STATIC_VALUE_INTEGER) return "usize";
+  if (value.kind == STATIC_VALUE_BOOL) return "Bool";
+  if (value.kind == STATIC_VALUE_ENUM) {
+    const EnumDecl *item_enum = static_enum_type(program, value.enum_type);
+    return item_enum ? item_enum->name : NULL;
+  }
+  return NULL;
+}
+
 static bool program_has_ambiguous_type_arg_static_consts(const Program *program) {
   for (size_t i = 0; program && i < program->consts.len; i++) {
     const ConstDecl *item = &program->consts.items[i];
-    if (!item->name || !item->type || !is_static_value_param_type(program, item->type)) continue;
+    if (!type_core_static_const_type(program, item)) continue;
     if (static_const_name_is_ambiguous_type_arg(program, item->name)) return true;
   }
   return false;
@@ -2800,10 +2817,8 @@ static size_t append_type_core_static_const_binders(const Program *program, Scop
   size_t ordinal = 0;
   for (size_t i = 0; program && i < program->consts.len; i++) {
     const ConstDecl *item = &program->consts.items[i];
-    if (!item->name || !item->type || !is_static_value_param_type(program, item->type)) continue;
-    char *canonical = canonical_static_arg_for_type(program, item->name, item->type);
-    if (!canonical) continue;
-    free(canonical);
+    const char *static_type = type_core_static_const_type(program, item);
+    if (!static_type) continue;
     ZTypeBinderId id = (ZTypeBinderId)(first_id + ordinal);
     ordinal++;
     if (type_core_binder_decl_name_exists(decls, len, item->name)) continue;
@@ -2813,7 +2828,7 @@ static size_t append_type_core_static_const_binders(const Program *program, Scop
       .name = item->name,
       .kind = Z_TYPE_BINDER_STATIC,
       .id = id,
-      .static_type = item->type,
+      .static_type = static_type,
     };
   }
   return len;
@@ -2822,12 +2837,7 @@ static size_t append_type_core_static_const_binders(const Program *program, Scop
 static size_t type_core_static_const_binder_count(const Program *program) {
   size_t len = 0;
   for (size_t i = 0; program && i < program->consts.len; i++) {
-    const ConstDecl *item = &program->consts.items[i];
-    if (!item->name || !item->type || !is_static_value_param_type(program, item->type)) continue;
-    char *canonical = canonical_static_arg_for_type(program, item->name, item->type);
-    if (!canonical) continue;
-    free(canonical);
-    len++;
+    if (type_core_static_const_type(program, &program->consts.items[i])) len++;
   }
   return len;
 }
