@@ -638,6 +638,31 @@ static void helper_result_type_mismatch_fails(void) {
   expect_fail("helper result type mismatch", &ir, "helper result type mismatch");
 }
 
+static void byte_view_equality_result_type_mismatch_fails(void) {
+  IrValue left = byte_view_value();
+  IrValue right = byte_view_value();
+  IrValue equal = value(IR_VALUE_BYTE_VIEW_EQ, IR_TYPE_I32);
+  equal.left = &left;
+  equal.right = &right;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &equal, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_I32, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("byte-view equality result mismatch", &ir, "byte-view equality result type mismatch");
+}
+
+static void binary_operand_type_mismatch_fails(void) {
+  IrValue left = value(IR_VALUE_INT, IR_TYPE_I32);
+  IrValue right = value(IR_VALUE_BOOL, IR_TYPE_BOOL);
+  IrValue binary = value(IR_VALUE_BINARY, IR_TYPE_I32);
+  binary.binary_op = IR_BIN_ADD;
+  binary.left = &left;
+  binary.right = &right;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &binary, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_I32, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("binary operand type mismatch", &ir, "binary operand type mismatch");
+}
+
 static void byte_copy_immutable_destination_fails(void) {
   IrValue src = byte_view_value();
   IrValue dst = byte_view_value();
@@ -841,6 +866,8 @@ int main(void) {
   vec_init_maybe_immutable_overwrite_fails();
   http_fetch_immutable_response_fails();
   helper_result_type_mismatch_fails();
+  byte_view_equality_result_type_mismatch_fails();
+  binary_operand_type_mismatch_fails();
   byte_copy_immutable_destination_fails();
   byte_copy_result_type_mismatch_fails();
   byte_fill_value_mismatch_fails();

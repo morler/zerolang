@@ -624,47 +624,346 @@ static bool mir_verify_fallible_flow_value_contract(IrProgram *ir, const IrValue
   return true;
 }
 
+static bool mir_verify_direct_primitive_value(IrProgram *ir, const IrValue *value, const char *message, const char *role) {
+  if (!ir || !ir->mir_valid) return false;
+  if (value && (value->type == IR_TYPE_BOOL || mir_type_is_integer_value(value->type))) return true;
+  char actual[160];
+  snprintf(actual, sizeof(actual), "%s is %s", role ? role : "value", value ? mir_type_kind_name(value->type) : "missing");
+  mir_verify_mark_unsupported(ir, message, value ? value->line : 1, value ? value->column : 1, actual);
+  return false;
+}
+
+static bool mir_verify_same_type_operands(IrProgram *ir, const IrValue *value, const char *message, const char *role) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  if (value->left && value->right && value->left->type == value->type && value->right->type == value->type) return true;
+  char actual[192];
+  snprintf(actual, sizeof(actual), "%s result %s left %s right %s",
+           role ? role : "value",
+           mir_type_kind_name(value->type),
+           value->left ? mir_type_kind_name(value->left->type) : "missing",
+           value->right ? mir_type_kind_name(value->right->type) : "missing");
+  mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+  return false;
+}
+
+static bool mir_verify_binary_value_contract(IrProgram *ir, const IrValue *value) {
+  if (!mir_verify_direct_primitive_value(ir, value, "MIR verifier found binary result type mismatch", "binary result")) return false;
+  if ((value->binary_op == IR_BIN_ADD || value->binary_op == IR_BIN_SUB ||
+       value->binary_op == IR_BIN_MUL || value->binary_op == IR_BIN_DIV ||
+       value->binary_op == IR_BIN_MOD) &&
+      value->type == IR_TYPE_BOOL) {
+    mir_verify_mark_unsupported(ir, "MIR verifier found invalid boolean arithmetic", value->line, value->column, "arithmetic result is Bool");
+    return false;
+  }
+  return mir_verify_same_type_operands(ir, value, "MIR verifier found binary operand type mismatch", "binary");
+}
+
+static bool mir_verify_compare_value_contract(IrProgram *ir, const IrValue *value) {
+  if (!mir_verify_value_type(ir, value, IR_TYPE_BOOL, "MIR verifier found compare result type mismatch", "compare result")) return false;
+  if (!value->left || !value->right || value->left->type != value->right->type ||
+      !(value->left->type == IR_TYPE_BOOL || mir_type_is_integer_value(value->left->type))) {
+    char actual[192];
+    snprintf(actual, sizeof(actual), "compare left %s right %s",
+             value->left ? mir_type_kind_name(value->left->type) : "missing",
+             value->right ? mir_type_kind_name(value->right->type) : "missing");
+    mir_verify_mark_unsupported(ir, "MIR verifier found compare operand type mismatch", value->line, value->column, actual);
+    return false;
+  }
+  return true;
+}
+
+static bool mir_verify_maybe_scalar_result(IrProgram *ir, const IrValue *value, IrTypeKind element_type, const char *message, const char *role) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  if (value->type == IR_TYPE_MAYBE_SCALAR && value->element_type == element_type) return true;
+  char actual[192];
+  snprintf(actual, sizeof(actual), "%s result %s value %s but expected Maybe<%s>",
+           role ? role : "helper",
+           mir_type_kind_name(value->type),
+           mir_type_kind_name(value->element_type),
+           mir_type_kind_name(element_type));
+  mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+  return false;
+}
+
+static bool mir_verify_maybe_scalar_or_fallible_result(IrProgram *ir, const IrValue *value, IrTypeKind element_type, const char *message, const char *role) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  if ((value->type == IR_TYPE_MAYBE_SCALAR || value->type == IR_TYPE_I64) && value->element_type == element_type) return true;
+  char actual[192];
+  snprintf(actual, sizeof(actual), "%s result %s value %s but expected Maybe<%s> or fallible %s",
+           role ? role : "helper",
+           mir_type_kind_name(value->type),
+           mir_type_kind_name(value->element_type),
+           mir_type_kind_name(element_type),
+           mir_type_kind_name(element_type));
+  mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+  return false;
+}
+
+static bool mir_verify_file_local(IrProgram *ir, const IrFunction *fun, const IrValue *value, const char *message, const char *role) {
+  return mir_verify_local_value_kind(ir, fun, value ? value->local_index : 0, IR_TYPE_I32, value ? value->line : 1, value ? value->column : 1, message, role);
+}
+
+static bool mir_verify_byte_view_pair(IrProgram *ir, const IrValue *value, const char *message, const char *left_role, const char *right_role) {
+  if (!mir_verify_value_type(ir, value ? value->left : NULL, IR_TYPE_BYTE_VIEW, message, left_role)) return false;
+  return mir_verify_value_type(ir, value ? value->right : NULL, IR_TYPE_BYTE_VIEW, message, right_role);
+}
+
+static bool mir_verify_fs_value_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  switch (value->kind) {
+    case IR_VALUE_FS_HOST:
+      return mir_verify_helper_result_type(ir, value, IR_TYPE_I32, "filesystem host result");
+    case IR_VALUE_FS_OPEN:
+    case IR_VALUE_FS_CREATE:
+      if (!mir_verify_maybe_scalar_or_fallible_result(ir, value, IR_TYPE_I32, "MIR verifier found filesystem open result type mismatch", "filesystem open")) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem path", "filesystem path");
+    case IR_VALUE_FS_READ_PATH:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_USIZE, "filesystem read result")) return false;
+      if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem read path", "filesystem read path")) return false;
+      return mir_verify_mutable_byte_storage(ir, fun, state, value->right, "MIR verifier found invalid filesystem read buffer", "filesystem read buffer");
+    case IR_VALUE_FS_READ_BYTES_PATH:
+      if (!mir_verify_maybe_scalar_result(ir, value, IR_TYPE_USIZE, "MIR verifier found filesystem read result type mismatch", "filesystem read bytes")) return false;
+      if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem read path", "filesystem read path")) return false;
+      return mir_verify_mutable_byte_storage(ir, fun, state, value->right, "MIR verifier found invalid filesystem read buffer", "filesystem read buffer");
+    case IR_VALUE_FS_WRITE_PATH:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_USIZE, "filesystem write result")) return false;
+      return mir_verify_byte_view_pair(ir, value, "MIR verifier found invalid filesystem write input", "filesystem write path", "filesystem write bytes");
+    case IR_VALUE_FS_WRITE_BYTES_PATH:
+      if (!mir_verify_maybe_scalar_result(ir, value, IR_TYPE_USIZE, "MIR verifier found filesystem write result type mismatch", "filesystem write bytes")) return false;
+      return mir_verify_byte_view_pair(ir, value, "MIR verifier found invalid filesystem write input", "filesystem write path", "filesystem write bytes");
+    case IR_VALUE_FS_READ_ALL:
+      if (value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
+        if (!mir_verify_helper_result_type(ir, value, IR_TYPE_MAYBE_BYTE_VIEW, "filesystem readAll result")) return false;
+      } else if (value->type != IR_TYPE_I64 || value->element_type != IR_TYPE_BYTE_VIEW) {
+        char actual[160];
+        snprintf(actual, sizeof(actual), "readAll result %s value %s", mir_type_kind_name(value->type), mir_type_kind_name(value->element_type));
+        mir_verify_mark_unsupported(ir, "MIR verifier found filesystem readAll result type mismatch", value->line, value->column, actual);
+        return false;
+      }
+      if (!mir_verify_local_value_kind(ir, fun, value->local_index, IR_TYPE_ALLOC, value->line, value->column, "MIR verifier found invalid filesystem readAll allocator", "allocator")) return false;
+      if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem readAll path", "filesystem readAll path")) return false;
+      return mir_verify_value_is_integer(ir, value->right, "MIR verifier found invalid filesystem readAll limit", "filesystem readAll limit");
+    case IR_VALUE_FS_READ_FILE:
+      if (!mir_verify_maybe_scalar_or_fallible_result(ir, value, IR_TYPE_USIZE, "MIR verifier found filesystem file read result type mismatch", "filesystem file read")) return false;
+      if (!mir_verify_file_local(ir, fun, value, "MIR verifier found invalid filesystem file read target", "File")) return false;
+      return mir_verify_mutable_byte_storage(ir, fun, state, value->left, "MIR verifier found invalid filesystem file read buffer", "filesystem file read buffer");
+    case IR_VALUE_FS_WRITE_ALL_FILE:
+      if (value->type == IR_TYPE_BOOL) {
+        if (value->element_type != IR_TYPE_VOID) {
+          mir_verify_mark_unsupported(ir, "MIR verifier found filesystem file write result type mismatch", value->line, value->column, "writeAll Bool result carries non-Void value");
+          return false;
+        }
+      } else if (value->type != IR_TYPE_I64 || value->element_type != IR_TYPE_VOID) {
+        char actual[160];
+        snprintf(actual, sizeof(actual), "writeAll result %s value %s", mir_type_kind_name(value->type), mir_type_kind_name(value->element_type));
+        mir_verify_mark_unsupported(ir, "MIR verifier found filesystem file write result type mismatch", value->line, value->column, actual);
+        return false;
+      }
+      if (!mir_verify_file_local(ir, fun, value, "MIR verifier found invalid filesystem file write target", "File")) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem file write bytes", "filesystem file write bytes");
+    case IR_VALUE_FS_CLOSE_FILE:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_VOID, "filesystem close result")) return false;
+      return mir_verify_file_local(ir, fun, value, "MIR verifier found invalid filesystem close target", "File");
+    case IR_VALUE_FS_EXISTS:
+    case IR_VALUE_FS_REMOVE:
+    case IR_VALUE_FS_MAKE_DIR:
+    case IR_VALUE_FS_REMOVE_DIR:
+    case IR_VALUE_FS_IS_DIR:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_BOOL, "filesystem boolean result")) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem path", "filesystem path");
+    case IR_VALUE_FS_RENAME:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_BOOL, "filesystem rename result")) return false;
+      return mir_verify_byte_view_pair(ir, value, "MIR verifier found invalid filesystem rename input", "filesystem rename source", "filesystem rename destination");
+    case IR_VALUE_FS_FILE_LEN:
+      if (!mir_verify_maybe_scalar_or_fallible_result(ir, value, IR_TYPE_USIZE, "MIR verifier found filesystem file length result type mismatch", "filesystem file length")) return false;
+      return mir_verify_file_local(ir, fun, value, "MIR verifier found invalid filesystem file length target", "File");
+    case IR_VALUE_FS_DIR_ENTRY_COUNT:
+      if (!mir_verify_maybe_scalar_result(ir, value, IR_TYPE_USIZE, "MIR verifier found filesystem directory count result type mismatch", "filesystem directory count")) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem directory path", "filesystem directory path");
+    case IR_VALUE_FS_TEMP_NAME:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_MAYBE_BYTE_VIEW, "filesystem temp name result")) return false;
+      if (!mir_verify_mutable_byte_storage(ir, fun, state, value->left, "MIR verifier found invalid filesystem temp buffer", "filesystem temp buffer")) return false;
+      return mir_verify_value_type(ir, value->right, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem temp prefix", "filesystem temp prefix");
+    case IR_VALUE_FS_ATOMIC_WRITE:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_BOOL, "filesystem atomic write result")) return false;
+      if (!mir_verify_byte_view_pair(ir, value, "MIR verifier found invalid filesystem atomic write input", "filesystem atomic write path", "filesystem atomic write temp path")) return false;
+      return mir_verify_value_type(ir, value->index, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem atomic write bytes", "filesystem atomic write bytes");
+    default:
+      return true;
+  }
+}
+
+static bool mir_verify_platform_value_contract(IrProgram *ir, const IrFunction *fun, const IrValue *value) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  switch (value->kind) {
+    case IR_VALUE_ARGS_LEN:
+      return mir_verify_helper_result_type(ir, value, IR_TYPE_USIZE, "args length result");
+    case IR_VALUE_ARGS_GET:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_MAYBE_BYTE_VIEW, "args get result")) return false;
+      return mir_verify_value_is_integer(ir, value->left, "MIR verifier found invalid args index", "args index");
+    case IR_VALUE_ENV_GET:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_MAYBE_BYTE_VIEW, "environment get result")) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid environment key", "environment key");
+    case IR_VALUE_TIME_WALL_SECONDS:
+    case IR_VALUE_TIME_MONOTONIC:
+      return mir_verify_helper_result_type(ir, value, IR_TYPE_I64, value->kind == IR_VALUE_TIME_WALL_SECONDS ? "wall time result" : "monotonic time result");
+    case IR_VALUE_TIME_AS_MS:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_I32, "duration milliseconds result")) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_I64, "MIR verifier found invalid duration conversion input", "duration value");
+    case IR_VALUE_RAND_NEXT_U32:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_U32, "random next result")) return false;
+      if (!mir_verify_local_value_kind(ir, fun, value->local_index, IR_TYPE_U32, value->line, value->column, "MIR verifier found invalid random source", "random source")) return false;
+      if (!fun->locals[value->local_index].is_mutable) {
+        mir_verify_mark_unsupported(ir, "MIR verifier found immutable random source", value->line, value->column, fun->locals[value->local_index].name ? fun->locals[value->local_index].name : "<unnamed>");
+        return false;
+      }
+      return true;
+    case IR_VALUE_RAND_ENTROPY_U32:
+      return mir_verify_helper_result_type(ir, value, IR_TYPE_U32, "entropy result");
+    default:
+      return true;
+  }
+}
+
+static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {
+  if (!ir || !ir->mir_valid) return false;
+  if (!value) return true;
+  switch (value->kind) {
+    case IR_VALUE_INT:
+      return mir_verify_value_is_integer(ir, value, "MIR verifier found integer literal type mismatch", "integer literal");
+    case IR_VALUE_BOOL:
+      return mir_verify_value_type(ir, value, IR_TYPE_BOOL, "MIR verifier found boolean literal type mismatch", "boolean literal");
+    case IR_VALUE_LOCAL: {
+      if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found local value outside the local table")) return false;
+      const IrLocal *local = &fun->locals[value->local_index];
+      if (value->type != local->type) {
+        char actual[192];
+        snprintf(actual, sizeof(actual), "local value %u has %s but local %s has %s", value->local_index, mir_type_kind_name(value->type), local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
+        mir_verify_mark_unsupported(ir, "MIR verifier found local value type mismatch", value->line, value->column, actual);
+        return false;
+      }
+      return true;
+    }
+    case IR_VALUE_BINARY:
+      return mir_verify_binary_value_contract(ir, value);
+    case IR_VALUE_COMPARE:
+      return mir_verify_compare_value_contract(ir, value);
+    case IR_VALUE_CALL:
+      return mir_verify_direct_call_contract(ir, value);
+    case IR_VALUE_INDEX_LOAD:
+      return mir_verify_array_load_contract(ir, fun, value);
+    case IR_VALUE_STRING_LITERAL:
+      return mir_verify_value_type(ir, value, IR_TYPE_BYTE_VIEW, "MIR verifier found string literal type mismatch", "string literal");
+    case IR_VALUE_ARRAY_BYTE_VIEW:
+      return mir_verify_array_byte_view_contract(ir, fun, value);
+    case IR_VALUE_BYTE_SLICE:
+      return mir_verify_byte_view_value_contract(ir, value);
+    case IR_VALUE_BYTE_VIEW_LEN:
+      if (!mir_verify_byte_view_len_result(ir, value)) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid byte-view length input", "byte-view length input");
+    case IR_VALUE_BYTE_VIEW_INDEX_LOAD:
+      if (!mir_verify_value_type(ir, value, IR_TYPE_U8, "MIR verifier found byte-view index load result type mismatch", "byte-view index load")) return false;
+      if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid byte-view index load input", "byte-view index load input")) return false;
+      return mir_verify_value_is_integer(ir, value->index, "MIR verifier found invalid byte-view index load index", "byte-view index");
+    case IR_VALUE_BYTE_VIEW_EQ:
+      if (!mir_verify_value_type(ir, value, IR_TYPE_BOOL, "MIR verifier found byte-view equality result type mismatch", "byte-view equality result")) return false;
+      return mir_verify_byte_view_pair(ir, value, "MIR verifier found invalid byte-view equality input", "byte-view equality left", "byte-view equality right");
+    case IR_VALUE_BYTE_COPY:
+    case IR_VALUE_BYTE_FILL:
+      return mir_verify_byte_mutation_value_contract(ir, fun, state, value);
+    case IR_VALUE_CRC32_BYTES:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_U32, "CRC32 result")) return false;
+      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid CRC32 input", "CRC32 bytes");
+    case IR_VALUE_FIXED_BUF_ALLOC:
+    case IR_VALUE_VEC_INIT:
+    case IR_VALUE_VEC_PUSH:
+    case IR_VALUE_VEC_LEN:
+    case IR_VALUE_VEC_CAPACITY:
+    case IR_VALUE_ALLOC_BYTES:
+    case IR_VALUE_JSON_PARSE_BYTES:
+    case IR_VALUE_JSON_VALIDATE_BYTES:
+    case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
+    case IR_VALUE_HTTP_FETCH:
+    case IR_VALUE_HTTP_RESULT_OK:
+    case IR_VALUE_HTTP_RESULT_STATUS:
+    case IR_VALUE_HTTP_RESULT_BODY_LEN:
+    case IR_VALUE_HTTP_RESULT_ERROR:
+    case IR_VALUE_HTTP_RESPONSE_LEN:
+    case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN:
+    case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET:
+    case IR_VALUE_HTTP_HEADER_VALUE:
+    case IR_VALUE_HTTP_HEADER_FOUND:
+    case IR_VALUE_HTTP_HEADER_OFFSET:
+    case IR_VALUE_HTTP_HEADER_LEN:
+      return mir_verify_direct_helper_value_contract(ir, fun, state, value, requirements);
+    case IR_VALUE_MAYBE_HAS:
+    case IR_VALUE_MAYBE_VALUE:
+      return mir_verify_maybe_value_contract(ir, fun, value);
+    case IR_VALUE_MAYBE_SCALAR_LITERAL:
+      if (!mir_verify_helper_result_type(ir, value, IR_TYPE_MAYBE_SCALAR, "Maybe scalar literal")) return false;
+      if (!mir_type_is_integer_value(value->element_type) || value->data_len > 1) {
+        char actual[160];
+        snprintf(actual, sizeof(actual), "Maybe scalar literal value %s has flag %u", mir_type_kind_name(value->element_type), value->data_len);
+        mir_verify_mark_unsupported(ir, "MIR verifier found invalid Maybe scalar literal", value->line, value->column, actual);
+        return false;
+      }
+      return true;
+    case IR_VALUE_ARGS_LEN:
+    case IR_VALUE_ARGS_GET:
+    case IR_VALUE_ENV_GET:
+    case IR_VALUE_TIME_WALL_SECONDS:
+    case IR_VALUE_TIME_MONOTONIC:
+    case IR_VALUE_TIME_AS_MS:
+    case IR_VALUE_RAND_NEXT_U32:
+    case IR_VALUE_RAND_ENTROPY_U32:
+      return mir_verify_platform_value_contract(ir, fun, value);
+    case IR_VALUE_FS_HOST:
+    case IR_VALUE_FS_OPEN:
+    case IR_VALUE_FS_CREATE:
+    case IR_VALUE_FS_READ_PATH:
+    case IR_VALUE_FS_WRITE_PATH:
+    case IR_VALUE_FS_READ_BYTES_PATH:
+    case IR_VALUE_FS_WRITE_BYTES_PATH:
+    case IR_VALUE_FS_READ_ALL:
+    case IR_VALUE_FS_READ_FILE:
+    case IR_VALUE_FS_WRITE_ALL_FILE:
+    case IR_VALUE_FS_CLOSE_FILE:
+    case IR_VALUE_FS_EXISTS:
+    case IR_VALUE_FS_REMOVE:
+    case IR_VALUE_FS_RENAME:
+    case IR_VALUE_FS_FILE_LEN:
+    case IR_VALUE_FS_MAKE_DIR:
+    case IR_VALUE_FS_REMOVE_DIR:
+    case IR_VALUE_FS_IS_DIR:
+    case IR_VALUE_FS_DIR_ENTRY_COUNT:
+    case IR_VALUE_FS_TEMP_NAME:
+    case IR_VALUE_FS_ATOMIC_WRITE:
+      return mir_verify_fs_value_contract(ir, fun, state, value);
+    case IR_VALUE_FIELD_LOAD: {
+      if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found field load outside the local table")) return false;
+      const IrLocal *local = &fun->locals[value->local_index];
+      if (!local->is_record) {
+        char actual[160];
+        snprintf(actual, sizeof(actual), "local %s is %s", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
+        mir_verify_mark_unsupported(ir, "MIR verifier found field load from a non-record local", value->line, value->column, actual);
+        return false;
+      }
+      return mir_verify_record_field_span(ir, local, value->field_offset, value->type, value->line, value->column, "MIR verifier found field load outside the local storage");
+    }
+    case IR_VALUE_CHECK:
+    case IR_VALUE_RESCUE:
+      return mir_verify_fallible_flow_value_contract(ir, value);
+  }
+  char actual[128];
+  snprintf(actual, sizeof(actual), "value kind %d", (int)value->kind);
+  mir_verify_mark_unsupported(ir, "MIR verifier found unsupported value kind", value->line, value->column, actual);
+  return false;
+}
+
 static bool mir_verify_direct_value(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {
   if (!ir || !ir->mir_valid) return false;
   if (!value) return true;
-  if (value->kind == IR_VALUE_CALL && !mir_verify_direct_call_contract(ir, value)) return false;
-  if (!mir_verify_direct_helper_value_contract(ir, fun, state, value, requirements)) return false;
-  if ((value->kind == IR_VALUE_BYTE_COPY || value->kind == IR_VALUE_BYTE_FILL) && !mir_verify_byte_mutation_value_contract(ir, fun, state, value)) return false;
-  if ((value->kind == IR_VALUE_CHECK || value->kind == IR_VALUE_RESCUE) && !mir_verify_fallible_flow_value_contract(ir, value)) return false;
-  if (value->kind == IR_VALUE_LOCAL) {
-    if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found local value outside the local table")) return false;
-    const IrLocal *local = &fun->locals[value->local_index];
-    if (value->type != local->type) {
-      char actual[192];
-      snprintf(actual, sizeof(actual), "local value %u has %s but local %s has %s", value->local_index, mir_type_kind_name(value->type), local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
-      mir_verify_mark_unsupported(ir, "MIR verifier found local value type mismatch", value->line, value->column, actual);
-      return false;
-    }
-  }
-  if (value->kind == IR_VALUE_FIELD_LOAD) {
-    if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found field load outside the local table")) return false;
-    const IrLocal *local = &fun->locals[value->local_index];
-    if (!local->is_record) {
-      char actual[160];
-      snprintf(actual, sizeof(actual), "local %s is %s", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
-      mir_verify_mark_unsupported(ir, "MIR verifier found field load from a non-record local", value->line, value->column, actual);
-      return false;
-    }
-    if (!mir_verify_record_field_span(ir, local, value->field_offset, value->type, value->line, value->column, "MIR verifier found field load outside the local storage")) return false;
-  }
-  if (value->kind == IR_VALUE_INDEX_LOAD && !mir_verify_array_load_contract(ir, fun, value)) return false;
-  if (value->kind == IR_VALUE_ARRAY_BYTE_VIEW && !mir_verify_array_byte_view_contract(ir, fun, value)) return false;
-  if ((value->kind == IR_VALUE_MAYBE_HAS || value->kind == IR_VALUE_MAYBE_VALUE) && !mir_verify_maybe_value_contract(ir, fun, value)) return false;
-  if (value->kind == IR_VALUE_BYTE_SLICE && !mir_verify_byte_view_value_contract(ir, value)) return false;
-  if (value->kind == IR_VALUE_BYTE_VIEW_LEN) {
-    if (!mir_verify_byte_view_len_result(ir, value)) return false;
-    if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid byte-view length input", "byte-view length input")) return false;
-  }
-  if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD) {
-    if (!mir_verify_value_type(ir, value, IR_TYPE_U8, "MIR verifier found byte-view index load result type mismatch", "byte-view index load")) return false;
-    if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid byte-view index load input", "byte-view index load input")) return false;
-    if (!mir_verify_value_is_integer(ir, value->index, "MIR verifier found invalid byte-view index load index", "byte-view index")) return false;
-  }
+  if (!mir_verify_direct_value_kind_contract(ir, fun, state, value, requirements)) return false;
   for (size_t i = 0; i < value->arg_len; i++) {
     if (!mir_verify_direct_value(ir, fun, state, value->args[i], requirements)) return false;
   }
