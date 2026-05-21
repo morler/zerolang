@@ -900,7 +900,12 @@ static Expr *row_parse_expr(RowExprParser *parser) {
 
 static Expr *row_parse_expr_range(const ZRowTokenVec *tokens, size_t start, size_t end, ZDiag *diag) {
   RowExprParser parser = {.tokens = tokens, .pos = start, .end = end, .diag = diag};
-  return row_parse_expr(&parser);
+  Expr *expr = row_parse_expr(&parser);
+  if (!row_has_diag(diag) && parser.pos < end) {
+    const ZRowToken *token = &tokens->items[parser.pos];
+    row_diag(diag, token->line, token->column, 1, "unexpected token after row expression", "end of expression", NULL);
+  }
+  return expr;
 }
 
 static size_t row_find_top_level_token(const ZRowTokenVec *tokens, size_t start, size_t end, const char *text) {
@@ -1306,6 +1311,11 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
       size_t module_start = pos;
       size_t module_end = pos;
       while (module_end < end && !row_token_text(tokens, module_end, "as")) module_end++;
+      if (module_end == module_start) {
+        const ZRowToken *token = module_start < end ? &tokens->items[module_start] : &tokens->items[pos - 1];
+        row_diag(diag, token->line, token->column, 1, "expected import module name", "import module name", NULL);
+        return program;
+      }
       char *alias = NULL;
       int end_column = node->column;
       if (module_end > module_start) {

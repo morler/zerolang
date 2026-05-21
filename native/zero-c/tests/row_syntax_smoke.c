@@ -112,6 +112,20 @@ static Program parse_row_program(const char *source, ZRowTokenVec *tokens, ZRowT
   return program;
 }
 
+static void expect_row_parse_failure(const char *source, const char *expected_message) {
+  ZDiag diag = {0};
+  ZRowTokenVec tokens = z_row_tokenize(source, &diag);
+  expect(diag.code == 0, diag.message);
+  ZRowTree tree = {0};
+  expect(z_row_parse_layout(&tokens, &tree, &diag), diag.message);
+  Program program = z_parse_row(&tokens, &tree, &diag);
+  expect(diag.code == 100, "expected row parse failure");
+  expect(strstr(diag.message, expected_message) != NULL, "expected row parse diagnostic message");
+  z_free_program(&program);
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+}
+
 static void tokenizes_layout_and_trivia(void) {
   const char *source =
     "# leading comment\n"
@@ -496,6 +510,24 @@ static void rejects_else_after_explicit_else_block(void) {
   z_free_row_tokens(&tokens);
 }
 
+static void rejects_unconsumed_row_expression_tokens(void) {
+  expect_row_parse_failure(
+    "pub fn main Void\n"
+    "  let x i32 1 )\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "pub fn main Void\n"
+    "  let x i32 1 ]\n",
+    "unexpected token"
+  );
+}
+
+static void rejects_empty_use_import(void) {
+  expect_row_parse_failure("use\n", "import module");
+  expect_row_parse_failure("use as mem\n", "import module");
+}
+
 int main(void) {
   tokenizes_layout_and_trivia();
   tracks_nested_dedents();
@@ -512,6 +544,8 @@ int main(void) {
   parses_core_data_declarations();
   rejects_unbracketed_named_errors();
   rejects_else_after_explicit_else_block();
+  rejects_unconsumed_row_expression_tokens();
+  rejects_empty_use_import();
   printf("row syntax smoke ok\n");
   return 0;
 }
