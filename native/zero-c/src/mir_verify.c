@@ -600,7 +600,7 @@ static bool mir_verify_byte_mutation_value_contract(IrProgram *ir, const IrFunct
   return true;
 }
 
-static bool mir_verify_fallible_flow_value_contract(IrProgram *ir, const IrValue *value) {
+static bool mir_verify_fallible_flow_value_contract(IrProgram *ir, const IrFunction *fun, const IrValue *value) {
   if (!ir || !ir->mir_valid || !value) return false;
   if (value->kind == IR_VALUE_CHECK) {
     if (!value->left || value->left->type != IR_TYPE_I64) {
@@ -613,6 +613,10 @@ static bool mir_verify_fallible_flow_value_contract(IrProgram *ir, const IrValue
       char actual[160];
       snprintf(actual, sizeof(actual), "check result is %s but fallible value carries %s", mir_type_kind_name(value->type), mir_type_kind_name(value->left->element_type));
       mir_verify_mark_unsupported(ir, "MIR verifier found check result type mismatch", value->line, value->column, actual);
+      return false;
+    }
+    if (!fun || (!fun->raises && !fun->world_param_name)) {
+      mir_verify_mark_unsupported(ir, "MIR verifier found check in a non-fallible function", value->line, value->column, fun && fun->name ? fun->name : "<unnamed>");
       return false;
     }
     return true;
@@ -962,7 +966,7 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
     }
     case IR_VALUE_CHECK:
     case IR_VALUE_RESCUE:
-      return mir_verify_fallible_flow_value_contract(ir, value);
+      return mir_verify_fallible_flow_value_contract(ir, fun, value);
   }
   char actual[128];
   snprintf(actual, sizeof(actual), "value kind %d", (int)value->kind);
@@ -1080,6 +1084,12 @@ static bool mir_verify_direct_instr_contract(IrProgram *ir, const IrFunction *fu
         mir_verify_mark_unsupported(ir, "MIR verifier found invalid world write value", instr->line, instr->column, actual);
         return false;
       }
+      if (instr->field_offset != 1 && instr->field_offset != 2) {
+        char actual[128];
+        snprintf(actual, sizeof(actual), "world write stream id %u", instr->field_offset);
+        mir_verify_mark_unsupported(ir, "MIR verifier found invalid world write stream", instr->line, instr->column, actual);
+        return false;
+      }
       break;
     case IR_INSTR_RETURN:
       if (!mir_verify_direct_return_instr(ir, fun, instr)) return false;
@@ -1101,6 +1111,12 @@ static bool mir_verify_direct_instr_contract(IrProgram *ir, const IrFunction *fu
       break;
     case IR_INSTR_EXPR:
       break;
+    default: {
+      char actual[128];
+      snprintf(actual, sizeof(actual), "instruction kind %d", (int)instr->kind);
+      mir_verify_mark_unsupported(ir, "MIR verifier found unsupported instruction kind", instr->line, instr->column, actual);
+      return false;
+    }
   }
   return true;
 }

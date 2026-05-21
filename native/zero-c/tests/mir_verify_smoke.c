@@ -213,6 +213,13 @@ static void branch_condition_mismatch_fails(void) {
   expect_fail("branch condition mismatch", &ir, "invalid branch condition");
 }
 
+static void unsupported_instruction_kind_fails(void) {
+  IrInstr instr = {.kind = (IrInstrKind)999, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, NULL, 0, 0, &instr, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("unsupported instruction kind", &ir, "unsupported instruction kind");
+}
+
 static void array_write_contract_fails(void) {
   IrLocal locals[] = {scalar_local("x", IR_TYPE_I32, 0, false)};
   IrValue index = value(IR_VALUE_INT, IR_TYPE_USIZE);
@@ -796,6 +803,29 @@ static void check_result_type_mismatch_fails(void) {
   expect_fail("check result type mismatch", &ir, "check result type mismatch");
 }
 
+static void check_non_fallible_function_fails(void) {
+  IrValue packed = value(IR_VALUE_INT, IR_TYPE_I64);
+  packed.element_type = IR_TYPE_I32;
+  IrValue checked = value(IR_VALUE_CHECK, IR_TYPE_I32);
+  checked.left = &packed;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &checked, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_I32, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("check non-fallible function", &ir, "check in a non-fallible function");
+}
+
+static void check_hosted_world_main_passes(void) {
+  IrValue packed = value(IR_VALUE_INT, IR_TYPE_I64);
+  packed.element_type = IR_TYPE_I32;
+  IrValue checked = value(IR_VALUE_CHECK, IR_TYPE_I32);
+  checked.left = &packed;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &checked, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_VOID, NULL, 0, 0, &ret, 1, 0, false);
+  fun.world_param_name = "world";
+  IrProgram ir = program(&fun, 1);
+  expect_ok("check hosted world main", &ir);
+}
+
 static void rescue_fallback_type_mismatch_fails(void) {
   IrValue packed = value(IR_VALUE_INT, IR_TYPE_I64);
   packed.element_type = IR_TYPE_U8;
@@ -895,10 +925,19 @@ static void http_runtime_import_contract_fails(void) {
 
 static void world_write_helper_contract_fails(void) {
   IrValue bytes = byte_view_value();
-  IrInstr write = {.kind = IR_INSTR_WORLD_WRITE, .value = &bytes, .line = 1, .column = 1};
+  IrInstr write = {.kind = IR_INSTR_WORLD_WRITE, .field_offset = 1, .value = &bytes, .line = 1, .column = 1};
   IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, NULL, 0, 0, &write, 1, 0, false);
   IrProgram ir = program(&fun, 1);
   expect_fail("world write helper contract", &ir, "missing runtime helper contract");
+}
+
+static void world_write_stream_contract_fails(void) {
+  IrValue bytes = byte_view_value();
+  IrInstr write = {.kind = IR_INSTR_WORLD_WRITE, .field_offset = 3, .value = &bytes, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, NULL, 0, 0, &write, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_runtime_helper_count = 1;
+  expect_fail("world write stream contract", &ir, "invalid world write stream");
 }
 
 int main(void) {
@@ -908,6 +947,7 @@ int main(void) {
   packed_maybe_scalar_write_passes();
   return_type_mismatch_fails();
   branch_condition_mismatch_fails();
+  unsupported_instruction_kind_fails();
   array_write_contract_fails();
   array_write_type_mismatch_fails();
   array_load_contract_fails();
@@ -945,6 +985,8 @@ int main(void) {
   byte_fill_value_mismatch_fails();
   check_input_type_mismatch_fails();
   check_result_type_mismatch_fails();
+  check_non_fallible_function_fails();
+  check_hosted_world_main_passes();
   rescue_fallback_type_mismatch_fails();
   byte_view_len_u32_passes();
   maybe_has_non_maybe_local_fails();
@@ -954,6 +996,7 @@ int main(void) {
   host_runtime_import_contract_fails();
   http_runtime_import_contract_fails();
   world_write_helper_contract_fails();
+  world_write_stream_contract_fails();
   puts("mir verifier smoke ok");
   return 0;
 }
