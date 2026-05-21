@@ -274,13 +274,74 @@ static bool mir_verify_record_field_span(IrProgram *ir, const IrLocal *local, un
   return false;
 }
 
+static bool mir_value_produces_mutable_byte_payload(const IrValue *value) {
+  return value && value->type == IR_TYPE_MAYBE_BYTE_VIEW &&
+         (value->kind == IR_VALUE_ALLOC_BYTES ||
+          value->kind == IR_VALUE_FS_READ_ALL ||
+          value->kind == IR_VALUE_FS_TEMP_NAME);
+}
+
+static bool mir_instrs_define_mutable_byte_payload(const IrInstr *instrs, size_t len, unsigned local_index) {
+  for (size_t i = 0; i < len; i++) {
+    const IrInstr *instr = &instrs[i];
+    if (instr->kind == IR_INSTR_LOCAL_SET &&
+        instr->local_index == local_index &&
+        mir_value_produces_mutable_byte_payload(instr->value)) {
+      return true;
+    }
+    if (mir_instrs_define_mutable_byte_payload(instr->then_instrs, instr->then_len, local_index) ||
+        mir_instrs_define_mutable_byte_payload(instr->else_instrs, instr->else_len, local_index)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool mir_verify_mutable_byte_storage(IrProgram *ir, const IrFunction *fun, const IrValue *value, const char *message, const char *role) {
+  if (!mir_verify_value_type(ir, value, IR_TYPE_BYTE_VIEW, message, role)) return false;
+  if (value->kind == IR_VALUE_LOCAL) {
+    if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, message)) return false;
+    const IrLocal *local = &fun->locals[value->local_index];
+    if (local->type == IR_TYPE_BYTE_VIEW && local->is_mutable) return true;
+    char actual[192];
+    snprintf(actual, sizeof(actual), "%s local %s has %s and is %s", role ? role : "storage", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type), local->is_mutable ? "mutable" : "immutable");
+    mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+    return false;
+  }
+  if (value->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
+    if (!mir_verify_local_index(ir, fun, value->array_index, value->line, value->column, message)) return false;
+    const IrLocal *local = &fun->locals[value->array_index];
+    if (local->is_array && local->element_type == IR_TYPE_U8 && local->is_mutable) return true;
+    char actual[192];
+    snprintf(actual, sizeof(actual), "%s local %s is %s byte array and is %s", role ? role : "storage", local->name ? local->name : "<unnamed>", local->is_array && local->element_type == IR_TYPE_U8 ? "a" : "not a", local->is_mutable ? "mutable" : "immutable");
+    mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+    return false;
+  }
+  if (value->kind == IR_VALUE_MAYBE_VALUE) {
+    if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, message)) return false;
+    const IrLocal *local = &fun->locals[value->local_index];
+    if (local->type == IR_TYPE_MAYBE_BYTE_VIEW &&
+        mir_instrs_define_mutable_byte_payload(fun->instrs, fun->instr_len, value->local_index)) {
+      return true;
+    }
+    char actual[192];
+    snprintf(actual, sizeof(actual), "%s Maybe local %s has %s and is not known mutable storage", role ? role : "storage", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
+    mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+    return false;
+  }
+  char actual[160];
+  snprintf(actual, sizeof(actual), "%s is not backed by mutable local byte storage", role ? role : "storage");
+  mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+  return false;
+}
+
 static bool mir_verify_direct_helper_value_contract(IrProgram *ir, const IrFunction *fun, const IrValue *value, MirHelperRequirements *requirements) {
   if (!ir || !ir->mir_valid || !value) return ir && ir->mir_valid;
   switch (value->kind) {
     case IR_VALUE_FIXED_BUF_ALLOC:
       mir_require_count(&requirements->allocator_helpers, 1, value->line, value->column, "std.mem.fixedBufAlloc");
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_ALLOC, "FixedBufAlloc result")) return false;
-      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid FixedBufAlloc helper value", "allocator storage");
+      return mir_verify_mutable_byte_storage(ir, fun, value->left, "MIR verifier found invalid FixedBufAlloc helper value", "allocator storage");
     case IR_VALUE_ALLOC_BYTES:
       mir_require_count(&requirements->allocator_helpers, 2, value->line, value->column, "std.mem.allocBytes");
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_MAYBE_BYTE_VIEW, "allocation result")) return false;
@@ -289,7 +350,7 @@ static bool mir_verify_direct_helper_value_contract(IrProgram *ir, const IrFunct
     case IR_VALUE_VEC_INIT:
       mir_require_count(&requirements->buffer_helpers, 1, value->line, value->column, "std.mem.vec");
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_VEC, "Vec result")) return false;
-      return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid Vec helper value", "Vec storage");
+      return mir_verify_mutable_byte_storage(ir, fun, value->left, "MIR verifier found invalid Vec helper value", "Vec storage");
     case IR_VALUE_VEC_PUSH:
       mir_require_count(&requirements->buffer_helpers, 2, value->line, value->column, "std.mem.vecPush");
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_BOOL, "Vec push result")) return false;

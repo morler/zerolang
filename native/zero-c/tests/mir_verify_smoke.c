@@ -313,6 +313,40 @@ static void raise_in_hosted_world_main_passes(void) {
 }
 
 static void allocator_helper_contract_fails(void) {
+  IrLocal locals[] = {
+    array_local("storage", IR_TYPE_U8, 0),
+    scalar_local("alloc", IR_TYPE_ALLOC, 1, false)
+  };
+  locals[0].is_mutable = true;
+  IrValue bytes = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  bytes.array_index = 0;
+  bytes.data_len = 4;
+  IrValue alloc = value(IR_VALUE_FIXED_BUF_ALLOC, IR_TYPE_ALLOC);
+  alloc.left = &bytes;
+  IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 1, .value = &alloc, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 2, 0, &set, 1, 48, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("allocator helper contract", &ir, "missing allocator helper contract");
+}
+
+static void buffer_helper_contract_fails(void) {
+  IrLocal locals[] = {
+    array_local("storage", IR_TYPE_U8, 0),
+    scalar_local("vec", IR_TYPE_VEC, 1, false)
+  };
+  locals[0].is_mutable = true;
+  IrValue bytes = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  bytes.array_index = 0;
+  bytes.data_len = 4;
+  IrValue vec = value(IR_VALUE_VEC_INIT, IR_TYPE_VEC);
+  vec.left = &bytes;
+  IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 1, .value = &vec, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 2, 0, &set, 1, 48, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("buffer helper contract", &ir, "missing buffer helper contract");
+}
+
+static void fixed_buf_alloc_readonly_storage_fails(void) {
   IrLocal locals[] = {scalar_local("alloc", IR_TYPE_ALLOC, 0, false)};
   IrValue bytes = byte_view_value();
   IrValue alloc = value(IR_VALUE_FIXED_BUF_ALLOC, IR_TYPE_ALLOC);
@@ -320,18 +354,78 @@ static void allocator_helper_contract_fails(void) {
   IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 0, .value = &alloc, .line = 1, .column = 1};
   IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 1, 0, &set, 1, 32, false);
   IrProgram ir = program(&fun, 1);
-  expect_fail("allocator helper contract", &ir, "missing allocator helper contract");
+  ir.direct_allocator_helper_count = 1;
+  expect_fail("FixedBufAlloc read-only storage", &ir, "invalid FixedBufAlloc helper value");
 }
 
-static void buffer_helper_contract_fails(void) {
-  IrLocal locals[] = {scalar_local("vec", IR_TYPE_VEC, 0, false)};
-  IrValue bytes = byte_view_value();
+static void vec_init_immutable_storage_fails(void) {
+  IrLocal locals[] = {
+    array_local("storage", IR_TYPE_U8, 0),
+    scalar_local("vec", IR_TYPE_VEC, 1, false)
+  };
+  IrValue bytes = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  bytes.array_index = 0;
+  bytes.data_len = 4;
   IrValue vec = value(IR_VALUE_VEC_INIT, IR_TYPE_VEC);
   vec.left = &bytes;
-  IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 0, .value = &vec, .line = 1, .column = 1};
-  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 1, 0, &set, 1, 32, false);
+  IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 1, .value = &vec, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 2, 0, &set, 1, 48, false);
   IrProgram ir = program(&fun, 1);
-  expect_fail("buffer helper contract", &ir, "missing buffer helper contract");
+  ir.direct_buffer_helper_count = 1;
+  expect_fail("Vec init immutable storage", &ir, "invalid Vec helper value");
+}
+
+static void fixed_buf_alloc_unknown_maybe_storage_fails(void) {
+  IrLocal locals[] = {
+    scalar_local("maybe", IR_TYPE_MAYBE_BYTE_VIEW, 0, false),
+    scalar_local("alloc", IR_TYPE_ALLOC, 1, false)
+  };
+  IrValue bytes = value(IR_VALUE_MAYBE_VALUE, IR_TYPE_BYTE_VIEW);
+  bytes.local_index = 0;
+  IrValue alloc = value(IR_VALUE_FIXED_BUF_ALLOC, IR_TYPE_ALLOC);
+  alloc.left = &bytes;
+  IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 1, .value = &alloc, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 2, 0, &set, 1, 48, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_allocator_helper_count = 1;
+  expect_fail("FixedBufAlloc unknown Maybe storage", &ir, "invalid FixedBufAlloc helper value");
+}
+
+static void vec_init_known_maybe_storage_passes(void) {
+  IrLocal locals[] = {
+    array_local("storage", IR_TYPE_U8, 0),
+    scalar_local("alloc", IR_TYPE_ALLOC, 1, false),
+    scalar_local("maybe", IR_TYPE_MAYBE_BYTE_VIEW, 2, false),
+    scalar_local("vec", IR_TYPE_VEC, 3, false)
+  };
+  locals[0].is_mutable = true;
+  locals[2].byte_size = 24;
+  locals[2].frame_offset = 56;
+  locals[3].frame_offset = 72;
+  IrValue storage = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  storage.array_index = 0;
+  storage.data_len = 4;
+  IrValue alloc = value(IR_VALUE_FIXED_BUF_ALLOC, IR_TYPE_ALLOC);
+  alloc.left = &storage;
+  IrValue length = value(IR_VALUE_INT, IR_TYPE_USIZE);
+  length.int_value = 4;
+  IrValue bytes = value(IR_VALUE_ALLOC_BYTES, IR_TYPE_MAYBE_BYTE_VIEW);
+  bytes.local_index = 1;
+  bytes.left = &length;
+  IrValue maybe = value(IR_VALUE_MAYBE_VALUE, IR_TYPE_BYTE_VIEW);
+  maybe.local_index = 2;
+  IrValue vec = value(IR_VALUE_VEC_INIT, IR_TYPE_VEC);
+  vec.left = &maybe;
+  IrInstr instrs[] = {
+    {.kind = IR_INSTR_LOCAL_SET, .local_index = 1, .value = &alloc, .line = 1, .column = 1},
+    {.kind = IR_INSTR_LOCAL_SET, .local_index = 2, .value = &bytes, .line = 1, .column = 1},
+    {.kind = IR_INSTR_LOCAL_SET, .local_index = 3, .value = &vec, .line = 1, .column = 1}
+  };
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 4, 0, instrs, 3, 80, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_allocator_helper_count = 2;
+  ir.direct_buffer_helper_count = 1;
+  expect_ok("Vec init known Maybe storage", &ir);
 }
 
 static void helper_result_type_mismatch_fails(void) {
@@ -460,6 +554,10 @@ int main(void) {
   raise_in_hosted_world_main_passes();
   allocator_helper_contract_fails();
   buffer_helper_contract_fails();
+  fixed_buf_alloc_readonly_storage_fails();
+  vec_init_immutable_storage_fails();
+  fixed_buf_alloc_unknown_maybe_storage_fails();
+  vec_init_known_maybe_storage_passes();
   helper_result_type_mismatch_fails();
   byte_view_len_u32_passes();
   maybe_has_non_maybe_local_fails();
