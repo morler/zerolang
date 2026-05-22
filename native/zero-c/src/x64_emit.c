@@ -121,6 +121,18 @@ void z_x64_emit_mov_rax_from_rcx(ZBuf *buf) {
   z_x64_append_u8(buf, 0xc8);
 }
 
+void z_x64_emit_mov_rdx_from_rax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xc2);
+}
+
+void z_x64_emit_mov_rax_from_rdx(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xd0);
+}
+
 void z_x64_emit_mov_eax_from_ecx(ZBuf *buf) {
   z_x64_append_u8(buf, 0x89);
   z_x64_append_u8(buf, 0xc8);
@@ -151,6 +163,22 @@ void z_x64_emit_xor_ecx_ecx(ZBuf *buf) {
 void z_x64_emit_xor_rax_rax(ZBuf *buf) {
   z_x64_append_u8(buf, 0x48);
   z_x64_emit_xor_eax_eax(buf);
+}
+
+void z_x64_emit_inc_ecx(ZBuf *buf) {
+  z_x64_append_u8(buf, 0xff);
+  z_x64_append_u8(buf, 0xc1);
+}
+
+void z_x64_emit_inc_rcx(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_emit_inc_ecx(buf);
+}
+
+void z_x64_emit_inc_r8(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x49);
+  z_x64_append_u8(buf, 0xff);
+  z_x64_append_u8(buf, 0xc0);
 }
 
 void z_x64_emit_add_rax_rcx(ZBuf *buf, bool wide) {
@@ -188,6 +216,58 @@ void z_x64_emit_add_rdx_rcx(ZBuf *buf, bool wide) {
   z_x64_emit_wide_prefix(buf, wide);
   z_x64_append_u8(buf, 0x01);
   z_x64_append_u8(buf, 0xca);
+}
+
+void z_x64_emit_shl_rcx_imm8(ZBuf *buf, unsigned amount) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0xc1);
+  z_x64_append_u8(buf, 0xe1);
+  z_x64_append_u8(buf, amount);
+}
+
+void z_x64_emit_shr_rcx_imm8(ZBuf *buf, unsigned amount) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0xc1);
+  z_x64_append_u8(buf, 0xe9);
+  z_x64_append_u8(buf, amount);
+}
+
+void z_x64_emit_load_eax_ptr_rax_u8(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0xb6);
+  z_x64_append_u8(buf, 0x00);
+}
+
+void z_x64_emit_load_eax_ptr_rax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x8b);
+  z_x64_append_u8(buf, 0x00);
+}
+
+void z_x64_emit_load_rax_ptr_rax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x8b);
+  z_x64_append_u8(buf, 0x00);
+}
+
+void z_x64_emit_load_eax_ptr_rdx_u8(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0xb6);
+  z_x64_append_u8(buf, 0x02);
+}
+
+void z_x64_emit_load_eax_ptr_rdx(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x8b);
+  z_x64_append_u8(buf, 0x02);
+}
+
+void z_x64_emit_store_ptr_rdx_al(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x88);
+  z_x64_append_u8(buf, 0x02);
+}
+
+void z_x64_emit_store_ptr_rdx_eax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0x02);
 }
 
 void z_x64_emit_div_rax_rcx(ZBuf *buf, bool wide, bool uns, bool keep_remainder) {
