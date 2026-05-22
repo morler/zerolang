@@ -93,6 +93,70 @@ void z_x64_emit_load_rbp_positive_reg(ZBuf *buf, unsigned reg, unsigned offset, 
   }
 }
 
+static void z_x64_emit_rsp_offset_reg(ZBuf *buf, unsigned opcode, unsigned reg, unsigned offset, bool wide) {
+  if (wide || reg >= 8) {
+    unsigned rex = wide ? 0x48 : 0x40;
+    if (reg >= 8) rex |= 0x04;
+    z_x64_append_u8(buf, rex);
+  }
+  z_x64_append_u8(buf, opcode);
+  unsigned reg_low = reg & 7u;
+  if (offset == 0) {
+    z_x64_append_u8(buf, (reg_low << 3) | 0x04);
+    z_x64_append_u8(buf, 0x24);
+  } else if (offset <= 127) {
+    z_x64_append_u8(buf, 0x40 | (reg_low << 3) | 0x04);
+    z_x64_append_u8(buf, 0x24);
+    z_x64_append_u8(buf, offset);
+  } else {
+    z_x64_append_u8(buf, 0x80 | (reg_low << 3) | 0x04);
+    z_x64_append_u8(buf, 0x24);
+    z_x64_append_u32(buf, offset);
+  }
+}
+
+void z_x64_emit_load_rsp_offset_reg(ZBuf *buf, unsigned reg, unsigned offset, bool wide) {
+  z_x64_emit_rsp_offset_reg(buf, 0x8b, reg, offset, wide);
+}
+
+void z_x64_emit_store_rsp_offset_reg(ZBuf *buf, unsigned reg, unsigned offset, bool wide) {
+  z_x64_emit_rsp_offset_reg(buf, 0x89, reg, offset, wide);
+}
+
+void z_x64_emit_lea_rsp_offset_reg(ZBuf *buf, unsigned reg, unsigned offset) {
+  z_x64_emit_rsp_offset_reg(buf, 0x8d, reg, offset, true);
+}
+
+void z_x64_emit_mov_rsp_offset_u32(ZBuf *buf, unsigned offset, uint32_t value, bool wide) {
+  if (wide) z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0xc7);
+  if (offset == 0) {
+    z_x64_append_u8(buf, 0x04);
+    z_x64_append_u8(buf, 0x24);
+  } else if (offset <= 127) {
+    z_x64_append_u8(buf, 0x44);
+    z_x64_append_u8(buf, 0x24);
+    z_x64_append_u8(buf, offset);
+  } else {
+    z_x64_append_u8(buf, 0x84);
+    z_x64_append_u8(buf, 0x24);
+    z_x64_append_u32(buf, offset);
+  }
+  z_x64_append_u32(buf, value);
+}
+
+void z_x64_emit_inc_rsp_offset64(ZBuf *buf, unsigned offset) {
+  z_x64_emit_rsp_offset_reg(buf, 0xff, 0, offset, true);
+}
+
+void z_x64_emit_add_rax_rsp_offset(ZBuf *buf, unsigned offset) {
+  z_x64_emit_rsp_offset_reg(buf, 0x03, 0, offset, true);
+}
+
+void z_x64_emit_cmp_rax_rsp_offset(ZBuf *buf, unsigned offset) {
+  z_x64_emit_rsp_offset_reg(buf, 0x3b, 0, offset, true);
+}
+
 void z_x64_emit_push_reg64(ZBuf *buf, unsigned reg) {
   if (reg >= 8) z_x64_append_u8(buf, 0x41);
   z_x64_append_u8(buf, 0x50 + (reg & 7u));

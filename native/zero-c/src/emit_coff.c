@@ -786,21 +786,9 @@ static size_t coff_emit_exe_start_stub(ZBuf *text, ZCoffImportPatch *import_patc
 static size_t coff_emit_exe_world_write(ZBuf *text, ZCoffImportPatch *import_patches, size_t *import_patch_len) {
   size_t offset = text->len;
   z_x64_emit_sub_rsp(text, 72);
-  z_x64_append_u8(text, 0x48);
-  z_x64_append_u8(text, 0x89);
-  z_x64_append_u8(text, 0x54);
-  z_x64_append_u8(text, 0x24);
-  z_x64_append_u8(text, 0x28); // mov [rsp+40], rdx
-  z_x64_append_u8(text, 0x4c);
-  z_x64_append_u8(text, 0x89);
-  z_x64_append_u8(text, 0x44);
-  z_x64_append_u8(text, 0x24);
-  z_x64_append_u8(text, 0x30); // mov [rsp+48], r8
-  z_x64_append_u8(text, 0xc7);
-  z_x64_append_u8(text, 0x44);
-  z_x64_append_u8(text, 0x24);
-  z_x64_append_u8(text, 0x38);
-  z_x64_append_u32(text, 0); // DWORD bytes_written = 0
+  z_x64_emit_store_rsp_offset_reg(text, 2, 40, true);
+  z_x64_emit_store_rsp_offset_reg(text, 8, 48, true);
+  z_x64_emit_mov_rsp_offset_u32(text, 56, 0, false); // DWORD bytes_written = 0
   z_x64_append_u8(text, 0x83);
   z_x64_append_u8(text, 0xf9);
   z_x64_append_u8(text, 0x02); // cmp ecx, 2
@@ -812,27 +800,10 @@ static size_t coff_emit_exe_world_write(ZBuf *text, ZCoffImportPatch *import_pat
   z_x64_append_u32(text, 0xfffffff4u); // STD_ERROR_HANDLE
   coff_emit_import_call(text, import_patches, import_patch_len, Z_COFF_IMPORT_GET_STD_HANDLE);
   z_x64_emit_mov_rcx_from_rax(text, true);
-  z_x64_append_u8(text, 0x48);
-  z_x64_append_u8(text, 0x8b);
-  z_x64_append_u8(text, 0x54);
-  z_x64_append_u8(text, 0x24);
-  z_x64_append_u8(text, 0x28); // mov rdx, [rsp+40]
-  z_x64_append_u8(text, 0x4c);
-  z_x64_append_u8(text, 0x8b);
-  z_x64_append_u8(text, 0x44);
-  z_x64_append_u8(text, 0x24);
-  z_x64_append_u8(text, 0x30); // mov r8, [rsp+48]
-  z_x64_append_u8(text, 0x4c);
-  z_x64_append_u8(text, 0x8d);
-  z_x64_append_u8(text, 0x4c);
-  z_x64_append_u8(text, 0x24);
-  z_x64_append_u8(text, 0x38); // lea r9, [rsp+56]
-  z_x64_append_u8(text, 0x48);
-  z_x64_append_u8(text, 0xc7);
-  z_x64_append_u8(text, 0x44);
-  z_x64_append_u8(text, 0x24);
-  z_x64_append_u8(text, 0x20);
-  z_x64_append_u32(text, 0); // lpOverlapped = NULL
+  z_x64_emit_load_rsp_offset_reg(text, 2, 40, true);
+  z_x64_emit_load_rsp_offset_reg(text, 8, 48, true);
+  z_x64_emit_lea_rsp_offset_reg(text, 9, 56);
+  z_x64_emit_mov_rsp_offset_u32(text, 32, 0, true); // lpOverlapped = NULL
   coff_emit_import_call(text, import_patches, import_patch_len, Z_COFF_IMPORT_WRITE_FILE);
   z_x64_emit_xor_eax_eax(text);
   z_x64_emit_add_rsp(text, 72);
