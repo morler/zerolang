@@ -767,10 +767,7 @@ static const IrFunction *coff_find_executable_main(const IrProgram *program, ZDi
 }
 
 static void coff_emit_import_call(ZBuf *text, ZCoffImportPatch *patches, size_t *patch_len, unsigned import_index) {
-  z_x64_append_u8(text, 0xff);
-  z_x64_append_u8(text, 0x15);
-  size_t patch = text->len;
-  z_x64_append_u32(text, 0);
+  size_t patch = z_x64_emit_call_rip32_placeholder(text);
   if (patches && patch_len && *patch_len < 8) {
     patches[*patch_len] = (ZCoffImportPatch){.patch_offset = patch, .import_index = import_index};
     *patch_len += 1;

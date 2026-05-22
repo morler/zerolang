@@ -43,6 +43,14 @@ size_t z_x64_emit_call32_placeholder(ZBuf *buf) {
   return z_x64_emit_jmp32_placeholder(buf, 0xe8);
 }
 
+size_t z_x64_emit_call_rip32_placeholder(ZBuf *buf) {
+  z_x64_append_u8(buf, 0xff);
+  z_x64_append_u8(buf, 0x15);
+  size_t patch = buf->len;
+  z_x64_append_u32(buf, 0);
+  return patch;
+}
+
 size_t z_x64_emit_jcc32_placeholder(ZBuf *buf, unsigned condition) {
   z_x64_append_u8(buf, 0x0f);
   z_x64_append_u8(buf, condition);
@@ -127,10 +135,34 @@ void z_x64_emit_mov_rdx_from_rax(ZBuf *buf) {
   z_x64_append_u8(buf, 0xc2);
 }
 
+void z_x64_emit_mov_rdi_from_rax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xc7);
+}
+
+void z_x64_emit_mov_rsi_from_rax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xc6);
+}
+
+void z_x64_emit_mov_rsi_from_rsp(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xe6);
+}
+
 void z_x64_emit_mov_rax_from_rdx(ZBuf *buf) {
   z_x64_append_u8(buf, 0x48);
   z_x64_append_u8(buf, 0x89);
   z_x64_append_u8(buf, 0xd0);
+}
+
+void z_x64_emit_mov_rax_from_rdi(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xf8);
 }
 
 void z_x64_emit_mov_eax_from_ecx(ZBuf *buf) {
@@ -160,6 +192,12 @@ void z_x64_emit_xor_ecx_ecx(ZBuf *buf) {
   z_x64_append_u8(buf, 0xc9);
 }
 
+void z_x64_emit_xor_rdi_rdi(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x31);
+  z_x64_append_u8(buf, 0xff);
+}
+
 void z_x64_emit_xor_rax_rax(ZBuf *buf) {
   z_x64_append_u8(buf, 0x48);
   z_x64_emit_xor_eax_eax(buf);
@@ -179,6 +217,12 @@ void z_x64_emit_inc_r8(ZBuf *buf) {
   z_x64_append_u8(buf, 0x49);
   z_x64_append_u8(buf, 0xff);
   z_x64_append_u8(buf, 0xc0);
+}
+
+void z_x64_emit_dec_r8d(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x41);
+  z_x64_append_u8(buf, 0xff);
+  z_x64_append_u8(buf, 0xc8);
 }
 
 void z_x64_emit_add_rax_rcx(ZBuf *buf, bool wide) {
@@ -350,6 +394,11 @@ void z_x64_emit_mov_eax_u32(ZBuf *buf, uint32_t value) {
 void z_x64_emit_ud2(ZBuf *buf) {
   z_x64_append_u8(buf, 0x0f);
   z_x64_append_u8(buf, 0x0b);
+}
+
+void z_x64_emit_syscall(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0x05);
 }
 
 void z_x64_emit_sub_rsp(ZBuf *buf, unsigned amount) {
