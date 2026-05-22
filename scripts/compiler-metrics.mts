@@ -854,8 +854,10 @@ const hasRawX64CompareTestBytes = (text: string) =>
   rawX64CompareImm8.test(text) ||
   rawX64TestRegReg.test(text) ||
   rawX64SetccToBool.test(text);
-const rawX64IndexedLeaOrLoad = /(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x(?:8b|8d)\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x(?:04|44)\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x[0-9a-f]{2}\s*\)/is;
-const rawX64IndexedCmpImm8 = /(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x80\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x3c\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x[0-9a-f]{2}\s*\)/is;
+const rawX64SibMemoryModRm = "0x[0-9a-b][4c]";
+const rawX64SibCmpImm8ModRm = "0x(?:3c|7c|bc)";
+const rawX64IndexedLeaOrLoad = new RegExp(String.raw`(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x(?:8b|8d)\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*${rawX64SibMemoryModRm}\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x[0-9a-f]{2}\s*\)`, "is");
+const rawX64IndexedCmpImm8 = new RegExp(String.raw`(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x80\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*${rawX64SibCmpImm8ModRm}\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x[0-9a-f]{2}\s*\)`, "is");
 const hasRawX64IndexedMemoryBytes = (text: string) =>
   rawX64IndexedLeaOrLoad.test(text) ||
   rawX64IndexedCmpImm8.test(text);
