@@ -144,7 +144,7 @@ run_native_or_gap() {
       exit 1
     fi
   else
-    grep -q '"code"[[:space:]]*:[[:space:]]*"CGEN004"' "$out.json"
+    grep -q '"code"[[:space:]]*:[[:space:]]*"BLD004"' "$out.json"
   fi
 }
 
@@ -906,6 +906,10 @@ node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/
 test ! -f .zero/native-test/direct-hello-win.obj.c
 grep -q '"path":"direct-coff-x64-object"' .zero/native-test/direct-hello-win.json
 grep -q '"generatedCBytes": 0' .zero/native-test/direct-hello-win.json
+rm -f .zero/native-test/coff-maybe-byte-view.obj .zero/native-test/coff-maybe-byte-view.obj.c
+bin/zero build --json --emit obj --target win32-x64.exe conformance/native/pass/coff-maybe-byte-view-buildable.0 --out .zero/native-test/coff-maybe-byte-view.obj > .zero/native-test/coff-maybe-byte-view.json
+node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/native-test/coff-maybe-byte-view.json","utf8")); const b=fs.readFileSync(".zero/native-test/coff-maybe-byte-view.obj"); if (report.objectBackend.objectEmission.path!=="direct-coff-x64-object" || b.readUInt16LE(0)!==0x8664 || b.readUInt16LE(2)!==1 || !b.includes(Buffer.from("main"))) process.exit(1);'
+test ! -f .zero/native-test/coff-maybe-byte-view.obj.c
 rm -f .zero/native-test/direct-array-fill.o .zero/native-test/direct-array-fill.o.c
 bin/zero build --json --emit obj --target linux-musl-x64 examples/direct-array-fill.0 --out .zero/native-test/direct-array-fill.o > .zero/native-test/direct-array-fill-obj.json
 node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-array-fill.o"); if (b[0]!==0x7f || b[1]!==0x45 || b.readUInt16LE(16)!==1 || b.readUInt16LE(18)!==62) process.exit(1);'

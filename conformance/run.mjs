@@ -31,7 +31,7 @@ async function assertBoundsTrap(fixture, name) {
   const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", "linux-musl-x64", fixture, "--out", out]).catch((error) => error);
   if (build.code) {
     const body = JSON.parse(build.stdout);
-    assert.equal(body.diagnostics?.[0]?.code, "CGEN004");
+    assert.equal(body.diagnostics?.[0]?.code, "BLD004");
     return;
   }
   const body = JSON.parse(build.stdout);
@@ -46,7 +46,7 @@ async function assertDirectRuntimeOrUnsupported(fixture, name, expected) {
   const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", "linux-musl-x64", fixture, "--out", out]).catch((error) => error);
   if (build.code) {
     const body = JSON.parse(build.stdout);
-    assert.equal(body.diagnostics?.[0]?.code, "CGEN004");
+    assert.equal(body.diagnostics?.[0]?.code, "BLD004");
     return;
   }
 
@@ -82,7 +82,7 @@ async function assertCommonRuntimeOrUnsupported(fixture, name, expected) {
   const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", target, fixture, "--out", out]).catch((error) => error);
   if (build.code) {
     const body = JSON.parse(build.stdout);
-    assert.equal(body.diagnostics?.[0]?.code, "CGEN004");
+    assert.equal(body.diagnostics?.[0]?.code, "BLD004");
     return;
   }
 
@@ -342,6 +342,10 @@ for (const fixture of [
   "conformance/native/pass/generic-spans.0",
   "conformance/native/pass/open-ended-slices.0",
   "conformance/native/pass/string-slices.0",
+  "conformance/native/pass/coff-dynamic-byte-slice-blocked.0",
+  "conformance/native/pass/macho-large-byte-slice-blocked.0",
+  "conformance/native/pass/macho-nested-call-scratch-blocked.0",
+  "conformance/native/pass/macho-open-byte-slice-blocked.0",
   "conformance/native/pass/string-byte-ergonomics.0",
   "conformance/native/pass/indexed-mutation.0",
   "conformance/native/pass/nested-lvalues.0",
@@ -563,7 +567,7 @@ const agentSurfaceDirectGenericCollisionReadinessBody = JSON.parse(agentSurfaceD
 assert.equal(agentSurfaceDirectGenericCollisionReadinessBody.ok, true);
 assert.equal(agentSurfaceDirectGenericCollisionReadinessBody.targetReadiness.ok, false);
 assert.equal(agentSurfaceDirectGenericCollisionReadinessBody.targetReadiness.buildable, false);
-assert.equal(agentSurfaceDirectGenericCollisionReadinessBody.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(agentSurfaceDirectGenericCollisionReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
 assert.match(agentSurfaceDirectGenericCollisionReadinessBody.targetReadiness.diagnostics[0].message, /specialization name collides/);
 
 const agentSurfacePolymorphicRecursion = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/polymorphic-recursion-growth.0"]).catch((error) => error);
@@ -735,7 +739,7 @@ assert.equal(agentSurfaceOwnedDropReadinessBody.diagnostics.length, 0);
 assert.equal(agentSurfaceOwnedDropReadinessBody.targetReadiness.ok, false);
 assert.equal(agentSurfaceOwnedDropReadinessBody.targetReadiness.buildable, false);
 assert.equal(agentSurfaceOwnedDropReadinessBody.targetReadiness.languageOk, true);
-assert.equal(agentSurfaceOwnedDropReadinessBody.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(agentSurfaceOwnedDropReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
 assert.deepEqual(agentSurfaceOwnedDropReadinessBody.targetReadiness.diagnostics[0].backendBlocker, {
   target: "linux-musl-x64",
   objectFormat: "elf",
@@ -758,9 +762,226 @@ assert.equal(directCallExeReadinessBody.ok, true);
 assert.equal(directCallExeReadinessBody.diagnostics.length, 0);
 assert.equal(directCallExeReadinessBody.targetReadiness.ok, false);
 assert.equal(directCallExeReadinessBody.targetReadiness.buildable, false);
-assert.equal(directCallExeReadinessBody.targetReadiness.diagnostics[0].code, "CGEN004");
-assert.equal(directCallExeReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
+assert.equal(directCallExeReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(directCallExeReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
 assert.match(directCallExeReadinessBody.targetReadiness.diagnostics[0].message, /main must not take parameters/);
+const directCallExeBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "exe",
+  "--target",
+  "linux-musl-x64",
+  "examples/direct-call-add.0",
+  "--out",
+  `${outDir}/direct-call-add-blocked`,
+]).catch((error) => error);
+assert.notEqual(directCallExeBuild.code, 0);
+const directCallExeBuildBody = JSON.parse(directCallExeBuild.stdout);
+const directCallReadinessDiag = directCallExeReadinessBody.targetReadiness.diagnostics[0];
+const directCallBuildDiag = directCallExeBuildBody.diagnostics[0];
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(directCallBuildDiag[key], directCallReadinessDiag[key]);
+}
+assert.equal(directCallBuildDiag.backendBlocker.stage, "buildability");
+const directCallExeGraph = await execFileAsync(zero, [
+  "graph",
+  "--json",
+  "--emit",
+  "exe",
+  "--target",
+  "linux-musl-x64",
+  "examples/direct-call-add.0",
+]);
+const directCallExeGraphBody = JSON.parse(directCallExeGraph.stdout);
+assert.equal(directCallExeGraphBody.targetReadiness.ok, false);
+assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0].code, "BLD004");
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0][key], directCallReadinessDiag[key]);
+}
+assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+
+const directStringMachOExe = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "exe",
+  "--target",
+  "darwin-arm64",
+  "examples/direct-string-literal.0",
+  "--out",
+  `${outDir}/direct-string-literal-darwin`,
+]);
+const directStringMachOExeBody = JSON.parse(directStringMachOExe.stdout);
+assert.equal(directStringMachOExeBody.compiler, "zero-macho64");
+assert.equal(directStringMachOExeBody.generatedCBytes, 0);
+const directStringCoffExe = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "exe",
+  "--target",
+  "win32-x64.exe",
+  "examples/direct-string-literal.0",
+  "--out",
+  `${outDir}/direct-string-literal-win`,
+]);
+const directStringCoffExeBody = JSON.parse(directStringCoffExe.stdout);
+assert.equal(directStringCoffExeBody.compiler, "zero-coff-x64");
+assert.equal(directStringCoffExeBody.generatedCBytes, 0);
+
+const coffDynamicSliceFixture = "conformance/native/pass/coff-dynamic-byte-slice-blocked.0";
+const coffDynamicSliceReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "win32-x64.exe",
+  coffDynamicSliceFixture,
+]);
+const coffDynamicSliceReadinessBody = JSON.parse(coffDynamicSliceReadiness.stdout);
+assert.equal(coffDynamicSliceReadinessBody.ok, true);
+assert.equal(coffDynamicSliceReadinessBody.diagnostics.length, 0);
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.ok, false);
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.buildable, false);
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-coff-x64");
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+assert.match(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].message, /constant start/);
+const coffDynamicSliceBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "win32-x64.exe",
+  coffDynamicSliceFixture,
+  "--out",
+  `${outDir}/coff-dynamic-byte-slice.obj`,
+]).catch((error) => error);
+assert.notEqual(coffDynamicSliceBuild.code, 0);
+const coffDynamicSliceBuildBody = JSON.parse(coffDynamicSliceBuild.stdout);
+const coffDynamicSliceReadinessDiag = coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0];
+const coffDynamicSliceBuildDiag = coffDynamicSliceBuildBody.diagnostics[0];
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(coffDynamicSliceBuildDiag[key], coffDynamicSliceReadinessDiag[key]);
+}
+assert.equal(coffDynamicSliceBuildDiag.backendBlocker.backend, "zero-coff-x64");
+assert.equal(coffDynamicSliceBuildDiag.backendBlocker.stage, "buildability");
+
+async function assertMachOObjectBuildabilityBlocked(fixture, outName, expectedMessage) {
+  const readiness = await execFileAsync(zero, [
+    "check",
+    "--json",
+    "--emit",
+    "obj",
+    "--target",
+    "darwin-arm64",
+    fixture,
+  ]);
+  const readinessBody = JSON.parse(readiness.stdout);
+  assert.equal(readinessBody.ok, true);
+  assert.equal(readinessBody.diagnostics.length, 0);
+  assert.equal(readinessBody.targetReadiness.ok, false);
+  assert.equal(readinessBody.targetReadiness.buildable, false);
+  assert.equal(readinessBody.targetReadiness.languageOk, true);
+  assert.equal(readinessBody.targetReadiness.emit, "obj");
+  assert.equal(readinessBody.targetReadiness.target, "darwin-arm64");
+  assert.equal(readinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+  assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
+  assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+  assert.match(readinessBody.targetReadiness.diagnostics[0].message, expectedMessage);
+  const build = await execFileAsync(zero, [
+    "build",
+    "--json",
+    "--emit",
+    "obj",
+    "--target",
+    "darwin-arm64",
+    fixture,
+    "--out",
+    `${outDir}/${outName}`,
+  ]).catch((error) => error);
+  assert.notEqual(build.code, 0);
+  const buildBody = JSON.parse(build.stdout);
+  const readinessDiag = readinessBody.targetReadiness.diagnostics[0];
+  const buildDiag = buildBody.diagnostics[0];
+  for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+    assert.equal(buildDiag[key], readinessDiag[key]);
+  }
+  assert.equal(buildDiag.backendBlocker.backend, "zero-macho64");
+  assert.equal(buildDiag.backendBlocker.stage, "buildability");
+}
+
+await assertMachOObjectBuildabilityBlocked(
+  "conformance/native/pass/macho-large-byte-slice-blocked.0",
+  "macho-large-byte-slice.o",
+  /constant start/,
+);
+await assertMachOObjectBuildabilityBlocked(
+  "conformance/native/pass/macho-nested-call-scratch-blocked.0",
+  "macho-nested-call-scratch.o",
+  /scratch spill capacity/,
+);
+await assertMachOObjectBuildabilityBlocked(
+  "conformance/native/pass/macho-open-byte-slice-blocked.0",
+  "macho-open-byte-slice.o",
+  /byte-view length/,
+);
+
+const directCallArm64ObjReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "linux-arm64",
+  "examples/direct-call-add.0",
+]);
+const directCallArm64ObjReadinessBody = JSON.parse(directCallArm64ObjReadiness.stdout);
+assert.equal(directCallArm64ObjReadinessBody.ok, true);
+assert.equal(directCallArm64ObjReadinessBody.diagnostics.length, 0);
+assert.equal(directCallArm64ObjReadinessBody.targetReadiness.ok, false);
+assert.equal(directCallArm64ObjReadinessBody.targetReadiness.buildable, false);
+assert.equal(directCallArm64ObjReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(directCallArm64ObjReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-elf-aarch64");
+assert.equal(directCallArm64ObjReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+assert.match(directCallArm64ObjReadinessBody.targetReadiness.diagnostics[0].message, /without parameters|small integer literal/);
+const directCallArm64ObjBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "linux-arm64",
+  "examples/direct-call-add.0",
+  "--out",
+  `${outDir}/direct-call-add-arm64-blocked.o`,
+]).catch((error) => error);
+assert.notEqual(directCallArm64ObjBuild.code, 0);
+const directCallArm64ObjBuildBody = JSON.parse(directCallArm64ObjBuild.stdout);
+const directCallArm64ObjReadinessDiag = directCallArm64ObjReadinessBody.targetReadiness.diagnostics[0];
+const directCallArm64ObjBuildDiag = directCallArm64ObjBuildBody.diagnostics[0];
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(directCallArm64ObjBuildDiag[key], directCallArm64ObjReadinessDiag[key]);
+}
+assert.equal(directCallArm64ObjBuildDiag.backendBlocker.backend, "zero-elf-aarch64");
+assert.equal(directCallArm64ObjBuildDiag.backendBlocker.stage, "buildability");
+
+const arm64PrivateHelperObj = `${outDir}/aarch64-private-helper-ignored.o`;
+await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "linux-arm64",
+  "conformance/native/pass/aarch64-private-helper-ignored.0",
+  "--out",
+  arm64PrivateHelperObj,
+]);
+await assertElfAarch64Object(arm64PrivateHelperObj, "main");
 
 const memoryPackageMachOReadiness = await execFileAsync(zero, [
   "check",
@@ -776,9 +997,9 @@ assert.equal(memoryPackageMachOReadinessBody.ok, true);
 assert.equal(memoryPackageMachOReadinessBody.diagnostics.length, 0);
 assert.equal(memoryPackageMachOReadinessBody.targetReadiness.ok, false);
 assert.equal(memoryPackageMachOReadinessBody.targetReadiness.buildable, false);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
 assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
 
 async function assertAgentSurfaceOwnedDropUnsupported(target, emit, outName, expectedPattern, expectedObjectFormat, expectedBackend, options = {}) {
   const extraArgs = options.extraArgs ?? [];
@@ -797,7 +1018,7 @@ async function assertAgentSurfaceOwnedDropUnsupported(target, emit, outName, exp
   assert.notEqual(build.code, 0);
   const body = JSON.parse(build.stdout);
   const diagnostic = body.diagnostics[0];
-  assert.equal(diagnostic.code, "CGEN004");
+  assert.equal(diagnostic.code, "BLD004");
   assert.match(diagnostic.expected, expectedPattern);
   assert.equal(diagnostic.actual, "owned<Tracked>");
   assert.deepEqual(diagnostic.backendBlocker, {
@@ -2562,6 +2783,7 @@ await assertDirectRuntimeRequired("conformance/native/pass/generic-inferred-spec
 await assertDirectRuntimeRequired("conformance/native/pass/generic-nested-local-specialization.0", "generic-nested-local-specialization-required", { stdout: "generic nested local specialization ok\n" });
 await assertDirectRuntimeRequired("conformance/native/pass/generic-static-array-specialization.0", "generic-static-array-specialization-required", { stdout: "generic static array specialization ok\n" });
 await assertDirectRuntimeRequired("conformance/native/pass/generic-static-forwarded-array-specialization.0", "generic-static-forwarded-array-specialization-required", { stdout: "generic static forwarded array specialization ok\n" });
+await assertDirectRuntimeRequired("conformance/native/pass/explicit-cast-narrow-direct.0", "explicit-cast-narrow-direct-required", { stdout: "explicit cast narrow direct ok\n" });
 
 const abiDump = await execFileAsync(zero, ["abi", "dump", "--json", "conformance/native/pass/const-layout.0"]);
 const abiDumpBody = JSON.parse(abiDump.stdout);

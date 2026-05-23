@@ -27,6 +27,7 @@ void z_x64_emit_cmp_reg_reg(ZBuf *buf, unsigned lhs, unsigned rhs, bool wide);
 void z_x64_emit_cmp_reg_i8(ZBuf *buf, unsigned reg, int8_t value, bool wide);
 void z_x64_emit_mov_reg_from_rax(ZBuf *buf, unsigned reg, bool wide);
 void z_x64_emit_mov_reg_from_reg(ZBuf *buf, unsigned dst_reg, unsigned src_reg, bool wide);
+void z_x64_emit_cdqe(ZBuf *buf);
 void z_x64_emit_mov_reg_u32(ZBuf *buf, unsigned reg, uint32_t value);
 void z_x64_emit_mov_reg_i32(ZBuf *buf, unsigned reg, int32_t value);
 void z_x64_emit_mov_reg_u64(ZBuf *buf, unsigned reg, uint64_t value);

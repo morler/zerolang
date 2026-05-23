@@ -22,17 +22,24 @@ static bool a64_diag(ZDiag *diag, const char *message, int line, int column, con
 
 static bool a64_return_literal(const IrFunction *fun, uint32_t *out, ZDiag *diag) {
   if (!fun) return a64_diag(diag, "direct AArch64 ELF object backend requires a function", 1, 1, "missing function");
+  if (fun->param_count != 0) {
+    return a64_diag(diag, "direct AArch64 ELF object backend currently supports exported functions without parameters", fun->line, fun->column, fun->name);
+  }
   if (fun->return_type != IR_TYPE_VOID && fun->return_type != IR_TYPE_U8 && fun->return_type != IR_TYPE_I32 && fun->return_type != IR_TYPE_U32 && fun->return_type != IR_TYPE_USIZE) {
     return a64_diag(diag, "direct AArch64 ELF object backend currently supports primitive 32-bit-or-smaller integer returns", fun->line, fun->column, fun->name);
   }
   *out = 0;
-  for (size_t i = 0; i < fun->instr_len; i++) {
-    const IrInstr *instr = &fun->instrs[i];
-    if (instr->kind != IR_INSTR_RETURN || !instr->value || instr->value->kind != IR_VALUE_INT || instr->value->int_value > 65535) continue;
-    *out = (uint32_t)instr->value->int_value;
+  if (fun->return_type == IR_TYPE_VOID) {
+    if (fun->instr_len == 0) return true;
+    if (fun->instr_len == 1 && fun->instrs[0].kind == IR_INSTR_RETURN && !fun->instrs[0].value) return true;
+    return a64_diag(diag, "direct AArch64 ELF object backend currently supports only empty Void functions or small integer literal returns", fun->line, fun->column, fun->name);
+  }
+  if (fun->instr_len == 1 && fun->instrs[0].kind == IR_INSTR_RETURN && fun->instrs[0].value &&
+      fun->instrs[0].value->kind == IR_VALUE_INT && fun->instrs[0].value->int_value <= 65535) {
+    *out = (uint32_t)fun->instrs[0].value->int_value;
     return true;
   }
-  return true;
+  return a64_diag(diag, "direct AArch64 ELF object backend currently requires a small integer literal return", fun->line, fun->column, fun->name);
 }
 
 static const IrFunction *a64_find_main(const IrProgram *ir, unsigned *out_index, ZDiag *diag) {

@@ -288,7 +288,7 @@ function runCase(language, benchCase) {
   }
   if (build.result.status !== 0) {
     const diagnosticCode = buildBody?.diagnostics?.[0]?.code ?? null;
-    if (language.name === "zero" && diagnosticCode === "CGEN004") {
+    if (language.name === "zero" && diagnosticCode === "BLD004") {
       return {
         language: language.name,
         case: name,

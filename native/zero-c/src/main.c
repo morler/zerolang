@@ -3,6 +3,7 @@
 #endif
 
 #include "zero.h"
+#include "buildability.h"
 #include "std_sig.h"
 
 #include <ctype.h>
@@ -85,6 +86,7 @@ static const char *diag_code(int code) {
     case 2001: return "APP001";
     case 2002: return "BLD002";
     case 2003: return "BLD003";
+    case 2004: return "BLD004";
     case 3002: return "NAM002";
     case 3003: return "NAM003";
     case 3004: return "NAM004";
@@ -1953,6 +1955,7 @@ static const char *emit_kind_name(EmitKind emit);
 static void append_backend_blocker_json(ZBuf *buf, const ZBackendBlocker *blocker);
 static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target, const Command *command, const char *emit_kind, const char *stage);
 static void init_direct_backend_diag(ZDiag *diag, const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *reason);
+static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const Command *command, const IrProgram *ir);
 static const char *direct_emit_emitter(const ZTargetInfo *target, const Command *command, const char *emit_kind);
 static void append_used_stdlib_helpers_json(ZBuf *buf, const HelperUseSummary *helpers);
 static void append_runtime_shims_json(ZBuf *buf, const char *emitted_symbol_text, const CapabilitySummary *caps);
@@ -2397,6 +2400,7 @@ static const char *diag_repair_id(int code) {
     case 3030: return "return-owned-value";
     case 3031: return "make-c-abi-safe";
     case 2003: return "use-direct-emitter";
+    case 2004: return "choose-buildable-direct-target";
     case 3032: return "match-generic-type-arguments";
     case 3033: return "make-generic-argument-types-match";
     case 3034: return "add-explicit-generic-type-arguments";
@@ -2448,6 +2452,7 @@ static const char *diag_repair_summary(int code) {
     case 3030: return "Return an owned value, or keep references to local bindings inside the current function.";
     case 3031: return "Use explicit scalar, ref, or mutref types at C ABI boundaries and keep exported C functions non-raising.";
     case 2003: return "Use a direct emitter such as --emit exe or --emit obj.";
+    case 2004: return "Choose a direct-supported target and artifact kind, or simplify the program to the target backend buildability subset.";
     case 3032: return "Pass one type argument for each generic parameter, or remove type arguments from non-generic calls.";
     case 3033: return "Make all values that bind the same generic parameter use the same concrete type.";
     case 3034: return "Add explicit generic type arguments when the compiler cannot infer them from runtime arguments.";
@@ -2797,16 +2802,8 @@ static const ExplainInfo explain_infos[] = {
     "vec.push(1)",
     "mut vec FixedVec<u8,4> FixedVec . len 0 items [0, 0, 0, 0]\nvec.push 1",
   },
-  {
-    "CGEN004",
-    "codegen",
-    "Direct backend unsupported",
-    "The selected direct backend cannot emit this target, object format, architecture, executable kind, or source feature yet.",
-    "Direct backends are target-specific and must report unsupported targets instead of routing through a removed compatibility backend.",
-    "Choose a target whose `zero targets --json` directBackend facts advertise the requested artifact, or use `--emit obj` where executable emission is not implemented.",
-    "zero build --emit obj --target linux-arm64 examples/direct-call-add.0",
-    "zero build --emit obj --target linux-x64 examples/direct-call-add.0",
-  },
+  {"BLD004", "build", "Direct backend target not buildable", "The selected direct backend cannot build this source, target, object format, architecture, or artifact kind.", "Target-aware buildability runs before object or executable emission and reports ordinary direct-backend limitations with structured blocker facts.", "Choose a target whose `zero targets --json` directBackend facts advertise the requested artifact, or simplify the program to the backend-supported subset.", "zero check --json --emit obj --target linux-arm64 examples/direct-call-add.0", "zero check --json --emit obj --target linux-x64 examples/direct-call-add.0"},
+  {"CGEN004", "codegen", "Direct code generation invariant failed", "A direct emitter reached an internal code generation invariant after target buildability accepted the program.", "Ordinary unsupported targets and source features should be reported before emission with BLD004.", "Report this compiler bug with the source program and target that produced it.", "zero build --json --emit obj --target linux-musl-x64 examples/direct-call-add.0", "zero build --json --emit obj --target linux-x64 examples/direct-call-add.0"},
   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -2835,6 +2832,7 @@ static void print_explain_json(const ExplainInfo *info) {
   append_json_string(&buf, diag_repair_id(strcmp(info->code, "TAR001") == 0 ? 6001 :
                                          strcmp(info->code, "TAR002") == 0 ? 6002 :
                                          strcmp(info->code, "BLD003") == 0 ? 2003 :
+                                         strcmp(info->code, "BLD004") == 0 ? 2004 :
                                          strcmp(info->code, "TYP009") == 0 ? 3010 :
                                          strcmp(info->code, "TYP023") == 0 ? 3032 :
                                          strcmp(info->code, "TYP024") == 0 ? 3033 :
@@ -4143,7 +4141,7 @@ static const char *backend_blocker_backend_name(const ZTargetInfo *target, const
 }
 
 static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target, const Command *command, const char *emit_kind, const char *stage) {
-  if (!diag || diag->code != 4004) return;
+  if (!diag || (diag->code != 4004 && diag->code != 2004)) return;
   const char *blocker_stage = diag->backend_blocker.present && diag->backend_blocker.stage[0] ? diag->backend_blocker.stage : stage;
   const char *unsupported_feature = diag->backend_blocker.present && diag->backend_blocker.unsupported_feature[0] ? diag->backend_blocker.unsupported_feature : diag->actual;
   ZBackendBlocker blocker;
@@ -4158,7 +4156,7 @@ static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target
 
 static void init_direct_backend_diag(ZDiag *diag, const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *reason) {
   memset(diag, 0, sizeof(*diag));
-  diag->code = 4004;
+  diag->code = 2004;
   diag->path = input ? input->source_file : NULL;
   diag->line = 1;
   diag->column = 1;
@@ -4185,6 +4183,26 @@ static int return_direct_backend_error(const Command *command, const SourceInput
   if (ir) z_free_ir_program(ir);
   if (program) z_free_program(program);
   return 1;
+}
+
+static int return_buildability_error(const Command *command, const SourceInput *input, ZDiag *diag, IrProgram *ir, Program *program) {
+  if (input && diag) {
+    z_map_source_diag(input, diag);
+    if (!diag->path) diag->path = input->source_file;
+  }
+  if (command && command->json) print_diag_json(input ? input->source_file : NULL, diag);
+  else print_diag(input ? input->source_file : NULL, diag);
+  if (ir) z_free_ir_program(ir);
+  if (program) z_free_program(program);
+  return 1;
+}
+
+static bool direct_buildability_preflight(const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const IrProgram *ir, ZDiag *diag) {
+  if (ir && !ir->mir_valid) {
+    init_lowering_backend_diag(diag, input, target, command, ir);
+    return false;
+  }
+  return z_direct_buildability_check(ir, target, emit_kind, diag);
 }
 
 static void format_file_size(long long bytes, char *out, size_t out_len) {
@@ -8434,7 +8452,7 @@ static const char *target_backend_help(const ZTargetInfo *target, const IrProgra
 
 static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const Command *command, const IrProgram *ir) {
   memset(diag, 0, sizeof(*diag));
-  diag->code = 4004;
+  diag->code = (ir && strcmp(ir->mir_expected, "direct backend MIR contract") == 0) ? 4004 : 2004;
   diag->path = input ? input->source_file : NULL;
   diag->line = ir && ir->mir_line > 0 ? ir->mir_line : 1;
   diag->column = ir && ir->mir_column > 0 ? ir->mir_column : 1;
@@ -8471,43 +8489,18 @@ static bool target_readiness_select_emit_target(const Command *command, const So
   return true;
 }
 
-static bool target_readiness_emit_object_dry_run(const IrProgram *ir, const char *emitter, ZBuf *artifact, ZDiag *diag) {
-  if (strcmp(emitter, "zero-elf64") == 0) return z_emit_elf64_object_from_ir(ir, artifact, diag);
-  if (strcmp(emitter, "zero-elf-aarch64") == 0) return z_emit_elf_aarch64_object_from_ir(ir, artifact, diag);
-  if (strcmp(emitter, "zero-macho64") == 0) return z_emit_macho64_object_from_ir(ir, artifact, diag);
-  if (strcmp(emitter, "zero-coff-x64") == 0) return z_emit_coff_x64_object_from_ir(ir, artifact, diag);
-  return false;
-}
-
-static bool target_readiness_emit_exe_dry_run(const IrProgram *ir, const char *emitter, ZBuf *artifact, ZDiag *diag) {
-  if (strcmp(emitter, "zero-elf-aarch64-exe") == 0) return z_emit_elf_aarch64_exe_from_ir(ir, artifact, diag);
-  if (strcmp(emitter, "zero-macho64-exe") == 0) return z_emit_macho64_exe_from_ir(ir, artifact, diag);
-  if (strcmp(emitter, "zero-coff-x64-exe") == 0) return z_emit_coff_x64_exe_from_ir(ir, artifact, diag);
-  if (strcmp(emitter, "zero-elf64-exe") == 0) return z_emit_elf64_exe_from_ir(ir, artifact, diag);
-  return false;
-}
-
-static bool target_readiness_dry_emit(const Command *command, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag) {
+static bool target_readiness_buildability_check(const Command *command, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag) {
   EmitKind emit = command ? command->emit : EMIT_EXE;
-  const char *emit_kind = emit_kind_name(emit);
-  ZBuf artifact = {0};
-  bool emitted = false;
-  if (emit == EMIT_OBJ) {
-    emitted = target_readiness_emit_object_dry_run(ir, z_direct_object_emitter(target), &artifact, diag);
-  } else if (emit == EMIT_EXE && ir && ir_needs_zero_runtime_object(ir)) {
-    emitted = target_readiness_emit_object_dry_run(ir, z_direct_object_emitter(target), &artifact, diag);
-  } else if (emit == EMIT_EXE) {
-    emitted = target_readiness_emit_exe_dry_run(ir, z_direct_exe_emitter(target), &artifact, diag);
-  }
-  zbuf_free(&artifact);
-  if (!emitted) complete_backend_blocker_diag(diag, target, command, emit_kind, "emit");
-  return emitted;
+  const char *emit_kind = (emit == EMIT_EXE && ir && ir_needs_zero_runtime_object(ir)) ? "obj" : emit_kind_name(emit);
+  if (z_direct_buildability_check(ir, target, emit_kind, diag)) return true;
+  complete_backend_blocker_diag(diag, target, command, emit_kind, diag && diag->backend_blocker.present ? diag->backend_blocker.stage : "buildability");
+  return false;
 }
 
 static bool target_readiness_select_diag(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag) {
   EmitKind emit = command ? command->emit : EMIT_EXE;
   const char *emit_kind = emit_kind_name(emit);
-  if (emit == EMIT_OBJ) return target_readiness_dry_emit(command, target, ir, diag);
+  if (emit == EMIT_OBJ) return target_readiness_buildability_check(command, target, ir, diag);
   if (emit == EMIT_C) {
     init_direct_backend_diag(diag, command, input, target, emit_kind, "use --emit exe or --emit obj for target readiness");
     return false;
@@ -8526,7 +8519,7 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
       init_direct_backend_diag(diag, command, input, target, emit_kind, "HTTP runtime provider is host-only for direct executable links");
       return false;
     }
-    return target_readiness_dry_emit(command, target, ir, diag);
+    return target_readiness_buildability_check(command, target, ir, diag);
   }
 
   const char *emitter = z_direct_exe_emitter(target);
@@ -8534,7 +8527,7 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
   CapabilitySummary caps = program_capabilities(program);
   bool default_direct_exe = supported_exe && (!command || !command->backend) && self_host_subset_compatible(program, &caps);
   bool requested_direct_exe = supported_exe && command && command->backend && command->backend[0];
-  if (default_direct_exe || requested_direct_exe) return target_readiness_dry_emit(command, target, ir, diag);
+  if (default_direct_exe || requested_direct_exe) return target_readiness_buildability_check(command, target, ir, diag);
   init_direct_backend_diag(diag, command, input, target, emit_kind, "direct executable backend is not implemented for this target/backend pair; use --emit obj for direct target objects or choose a supported direct executable target");
   return false;
 }
@@ -8739,7 +8732,7 @@ static void append_use_imports_json(ZBuf *buf, const SourceInput *input, const P
   zbuf_append(buf, "]");
 }
 
-static void append_graph_json(ZBuf *buf, const SourceInput *input, const Program *program, const ZTargetInfo *target) {
+static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, const ZTargetInfo *target, const Command *command) {
   CapabilitySummary caps = program_capabilities(program);
   size_t public_count = 0;
   size_t private_count = 0;
@@ -8752,9 +8745,7 @@ static void append_graph_json(ZBuf *buf, const SourceInput *input, const Program
   zbuf_append(buf, "  \"targets\": [{\"name\":\"cli\",\"kind\":\"exe\",\"main\":");
   append_json_string(buf, input->source_file);
   zbuf_append(buf, "}],\n");
-  zbuf_append(buf, "  \"package\": ");
-  append_package_metadata_json(buf, input, target);
-  zbuf_append(buf, ",\n");
+  zbuf_append(buf, "  \"package\": "); append_package_metadata_json(buf, input, target); zbuf_append(buf, ",\n");
   zbuf_append(buf, "  \"packageCache\": ");
   append_package_cache_audit_json(buf, input, target, "release");
   zbuf_append(buf, ",\n");
@@ -8779,6 +8770,7 @@ static void append_graph_json(ZBuf *buf, const SourceInput *input, const Program
   zbuf_append(buf, ",\"httpRuntime\":");
   z_append_http_runtime_json(buf, target);
   zbuf_append(buf, "},\n");
+  zbuf_append(buf, "  \"targetReadiness\": "); append_target_readiness_json(buf, input, program, target, command); zbuf_append(buf, ",\n");
   zbuf_append(buf, "  \"requiresCapabilities\": ");
   append_capability_json_array(buf, &caps);
   zbuf_append(buf, ",\n");
@@ -9525,7 +9517,7 @@ int main(int argc, char **argv) {
   if (strcmp(command.command, "graph") == 0) {
     ZBuf graph;
     zbuf_init(&graph);
-    append_graph_json(&graph, &input, &program, target);
+    append_graph_json(&graph, &input, &program, target, &command);
     fputs(graph.data, stdout);
     zbuf_free(&graph);
     z_free_program(&program);
@@ -9562,7 +9554,7 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return rc;
     }
-
+    if (!direct_buildability_preflight(&command, &input, target, "obj", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc; }
     ZBuf object;
     phase_started = now_ms();
     bool emitted_object = false;
@@ -9637,7 +9629,7 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return rc;
     }
-
+    if (!direct_buildability_preflight(&command, &input, target, "obj", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc; }
     ZBuf object;
     zbuf_init(&object);
     phase_started = now_ms();
@@ -9758,7 +9750,7 @@ int main(int argc, char **argv) {
       else if (strcmp(emitter, "zero-coff-x64-exe") == 0) command.backend = "zero-coff-x64";
       else command.backend = "zero-elf64";
     }
-
+    if (!direct_buildability_preflight(&command, &input, target, "exe", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc; }
     ZBuf exe;
     phase_started = now_ms();
     bool emitted_exe = false;

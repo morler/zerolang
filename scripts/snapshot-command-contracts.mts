@@ -1011,6 +1011,13 @@ const directMachOExeUuid = assertMachOLoadCommand(directMachOExeBytes, 0x1b, 24)
 assert(!directMachOExeUuid.subarray(8, 24).every((byte) => byte === 0));
 assert(directMachOExeBytes.includes(Buffer.from("/usr/lib/dyld")));
 assert(directMachOExeBytes.includes(Buffer.from("zero-direct")));
+const directMachOU8ExePath = join(outDir, "direct-macho-u8-return");
+rmSync(directMachOU8ExePath, { force: true });
+const directMachOU8ExeReport = json(["build", "--json", "--emit", "exe", "--target", "darwin-arm64", "examples/direct-string-literal.0", "--out", directMachOU8ExePath]).body;
+assert.equal(directMachOU8ExeReport.emit, "exe");
+assert.equal(directMachOU8ExeReport.compiler, "zero-macho64");
+assert.equal(directMachOU8ExeReport.generatedCBytes, 0);
+assert.equal(directMachOU8ExeReport.objectBackend.objectEmission.path, "direct-macho64-exe");
 const directCoffExePath = join(outDir, "direct-coff-exe-return");
 rmSync(`${directCoffExePath}.exe`, { force: true });
 const directCoffExeReport = json(["build", "--json", "--emit", "exe", "--backend", "zero-coff-x64", "--target", "win32-x64.exe", "examples/direct-exe-return.0", "--out", directCoffExePath]).body;
@@ -1035,6 +1042,13 @@ repeatBuildHash(["build", "--json", "--emit", "exe", "--backend", "zero-coff-x64
 assert.equal(directCoffExeBytes.toString("ascii", directCoffPeOffset, directCoffPeOffset + 4), "PE\u0000\u0000");
 assert.equal(directCoffExeBytes.readUInt16LE(directCoffPeOffset + 4), 0x8664);
 assert(directCoffExeBytes.includes(Buffer.from("KERNEL32.dll")));
+const directCoffU8ExePath = join(outDir, "direct-coff-u8-return");
+rmSync(`${directCoffU8ExePath}.exe`, { force: true });
+const directCoffU8ExeReport = json(["build", "--json", "--emit", "exe", "--target", "win32-x64.exe", "examples/direct-string-literal.0", "--out", directCoffU8ExePath]).body;
+assert.equal(directCoffU8ExeReport.emit, "exe");
+assert.equal(directCoffU8ExeReport.compiler, "zero-coff-x64");
+assert.equal(directCoffU8ExeReport.generatedCBytes, 0);
+assert.equal(directCoffU8ExeReport.objectBackend.objectEmission.path, "direct-coff-x64-exe");
 const directAarch64ExePath = join(outDir, "direct-aarch64-exe-return");
 rmSync(directAarch64ExePath, { force: true });
 const directAarch64ExeReport = json(["build", "--json", "--emit", "exe", "--backend", "zero-elf-aarch64", "--target", "linux-musl-arm64", "examples/direct-exe-return.0", "--out", directAarch64ExePath]).body;
@@ -1272,17 +1286,12 @@ assert(directElfFsFallibleBytes.includes(elfPackedErrorBytes(3)));
 assert(directElfFsFallibleBytes.includes(elfPackedErrorBytes(4)));
 const directArm64ElfPath = join(outDir, "direct-arm64.o");
 rmSync(directArm64ElfPath, { force: true });
-const directArm64ElfReport = json(["build", "--json", "--emit", "obj", "--target", "linux-arm64", "examples/direct-call-add.0", "--out", directArm64ElfPath]).body;
-const directArm64ElfBytes = readFileSync(directArm64ElfPath);
-assert.equal(directArm64ElfReport.compiler, "zero-elf-aarch64");
-assert.equal(directArm64ElfReport.objectBackend.objectEmission.path, "direct-elf-aarch64-object");
-assert.equal(directArm64ElfReport.objectBackend.linking.objectFormat, "elf");
-assert.equal(directArm64ElfReport.generatedCBytes, 0);
-assert.equal(directArm64ElfBytes[0], 0x7f);
-assert.equal(directArm64ElfBytes.toString("ascii", 1, 4), "ELF");
-assert.equal(directArm64ElfBytes.readUInt16LE(18), 183);
-assert(directArm64ElfBytes.includes(Buffer.concat([Buffer.from("main"), Buffer.from([0])])));
-assert(directArm64ElfBytes.includes(Buffer.from([0x00, 0x00, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6])));
+const directArm64ElfBlocked = json(["build", "--json", "--emit", "obj", "--target", "linux-arm64", "examples/direct-call-add.0", "--out", directArm64ElfPath], { allowFailure: true });
+assert.notEqual(directArm64ElfBlocked.code, 0);
+assert.equal(directArm64ElfBlocked.body.diagnostics[0].code, "BLD004");
+assert.equal(directArm64ElfBlocked.body.diagnostics[0].backendBlocker.backend, "zero-elf-aarch64");
+assert.equal(directArm64ElfBlocked.body.diagnostics[0].backendBlocker.stage, "buildability");
+assert.match(directArm64ElfBlocked.body.diagnostics[0].message, /without parameters|small integer literal/);
 const hostLeakGraph = json(["graph", "--json", "--target", "linux-musl-x64", "conformance/c/host-leak-package"]).body;
 assert.equal(hostLeakGraph.cLibraries[0].targetValidation.status, "blocked");
 assert.equal(hostLeakGraph.cLibraries[0].linkPlan.hostDiscovery, "blocked");
@@ -1356,7 +1365,7 @@ assert.equal(backendBlockedReadiness.targetReadiness.buildable, false);
 assert.equal(backendBlockedReadiness.targetReadiness.languageOk, true);
 assert.equal(backendBlockedReadiness.targetReadiness.emit, "obj");
 assert.equal(backendBlockedReadiness.targetReadiness.target, "linux-musl-x64");
-assert.equal(backendBlockedReadiness.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(backendBlockedReadiness.targetReadiness.diagnostics[0].code, "BLD004");
 assert.deepEqual(backendBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker, {
   target: "linux-musl-x64",
   objectFormat: "elf",
@@ -1372,9 +1381,87 @@ assert.equal(directExeBlockedReadiness.targetReadiness.buildable, false);
 assert.equal(directExeBlockedReadiness.targetReadiness.languageOk, true);
 assert.equal(directExeBlockedReadiness.targetReadiness.emit, "exe");
 assert.equal(directExeBlockedReadiness.targetReadiness.target, "linux-musl-x64");
-assert.equal(directExeBlockedReadiness.targetReadiness.diagnostics[0].code, "CGEN004");
-assert.equal(directExeBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
+assert.equal(directExeBlockedReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(directExeBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
 assert.match(directExeBlockedReadiness.targetReadiness.diagnostics[0].message, /main must not take parameters/);
+const directExeBlockedBuild = json(["build", "--json", "--emit", "exe", "--target", "linux-musl-x64", "examples/direct-call-add.0", "--out", join(outDir, "direct-call-add-blocked")], { allowFailure: true });
+assert.notEqual(directExeBlockedBuild.code, 0);
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(directExeBlockedBuild.body.diagnostics[0][key], directExeBlockedReadiness.targetReadiness.diagnostics[0][key]);
+}
+assert.equal(directExeBlockedBuild.body.diagnostics[0].backendBlocker.stage, "buildability");
+const directExeBlockedGraph = json(["graph", "--json", "--emit", "exe", "--target", "linux-musl-x64", "examples/direct-call-add.0"]).body;
+assert.equal(directExeBlockedGraph.targetReadiness.ok, false);
+assert.equal(directExeBlockedGraph.targetReadiness.diagnostics[0].code, "BLD004");
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(directExeBlockedGraph.targetReadiness.diagnostics[0][key], directExeBlockedReadiness.targetReadiness.diagnostics[0][key]);
+}
+assert.equal(directExeBlockedGraph.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+const coffMaybeByteViewFixture = "conformance/native/pass/coff-maybe-byte-view-buildable.0";
+const coffMaybeByteViewReadiness = json(["check", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffMaybeByteViewFixture]).body;
+assert.equal(coffMaybeByteViewReadiness.ok, true);
+assert.equal(coffMaybeByteViewReadiness.targetReadiness.ok, true);
+assert.equal(coffMaybeByteViewReadiness.targetReadiness.buildable, true);
+assert.equal(coffMaybeByteViewReadiness.targetReadiness.backend, "zero-coff-x64");
+const coffMaybeByteViewBuild = json(["build", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffMaybeByteViewFixture, "--out", join(outDir, "coff-maybe-byte-view.obj")]).body;
+assert.equal(coffMaybeByteViewBuild.objectBackend.objectEmission.path, "direct-coff-x64-object");
+assert.equal(coffMaybeByteViewBuild.generatedCBytes, 0);
+const coffDynamicSliceFixture = "conformance/native/pass/coff-dynamic-byte-slice-blocked.0";
+const coffDynamicSliceReadiness = json(["check", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffDynamicSliceFixture]).body;
+assert.equal(coffDynamicSliceReadiness.ok, true);
+assert.equal(coffDynamicSliceReadiness.diagnostics.length, 0);
+assert.equal(coffDynamicSliceReadiness.targetReadiness.ok, false);
+assert.equal(coffDynamicSliceReadiness.targetReadiness.buildable, false);
+assert.equal(coffDynamicSliceReadiness.targetReadiness.languageOk, true);
+assert.equal(coffDynamicSliceReadiness.targetReadiness.emit, "obj");
+assert.equal(coffDynamicSliceReadiness.targetReadiness.target, "win32-x64.exe");
+assert.equal(coffDynamicSliceReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(coffDynamicSliceReadiness.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-coff-x64");
+assert.equal(coffDynamicSliceReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+assert.match(coffDynamicSliceReadiness.targetReadiness.diagnostics[0].message, /constant start/);
+const coffDynamicSliceBuild = json(["build", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffDynamicSliceFixture, "--out", join(outDir, "coff-dynamic-byte-slice.obj")], { allowFailure: true });
+assert.notEqual(coffDynamicSliceBuild.code, 0);
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(coffDynamicSliceBuild.body.diagnostics[0][key], coffDynamicSliceReadiness.targetReadiness.diagnostics[0][key]);
+}
+assert.equal(coffDynamicSliceBuild.body.diagnostics[0].backendBlocker.backend, "zero-coff-x64");
+assert.equal(coffDynamicSliceBuild.body.diagnostics[0].backendBlocker.stage, "buildability");
+function assertMachOObjectBuildabilityBlocked(fixture: string, outName: string, expectedMessage: RegExp) {
+  const readiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", fixture]).body;
+  assert.equal(readiness.ok, true);
+  assert.equal(readiness.diagnostics.length, 0);
+  assert.equal(readiness.targetReadiness.ok, false);
+  assert.equal(readiness.targetReadiness.buildable, false);
+  assert.equal(readiness.targetReadiness.languageOk, true);
+  assert.equal(readiness.targetReadiness.emit, "obj");
+  assert.equal(readiness.targetReadiness.target, "darwin-arm64");
+  assert.equal(readiness.targetReadiness.diagnostics[0].code, "BLD004");
+  assert.equal(readiness.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
+  assert.equal(readiness.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+  assert.match(readiness.targetReadiness.diagnostics[0].message, expectedMessage);
+  const build = json(["build", "--json", "--emit", "obj", "--target", "darwin-arm64", fixture, "--out", join(outDir, outName)], { allowFailure: true });
+  assert.notEqual(build.code, 0);
+  for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+    assert.equal(build.body.diagnostics[0][key], readiness.targetReadiness.diagnostics[0][key]);
+  }
+  assert.equal(build.body.diagnostics[0].backendBlocker.backend, "zero-macho64");
+  assert.equal(build.body.diagnostics[0].backendBlocker.stage, "buildability");
+}
+assertMachOObjectBuildabilityBlocked(
+  "conformance/native/pass/macho-large-byte-slice-blocked.0",
+  "macho-large-byte-slice.o",
+  /constant start/,
+);
+assertMachOObjectBuildabilityBlocked(
+  "conformance/native/pass/macho-nested-call-scratch-blocked.0",
+  "macho-nested-call-scratch.o",
+  /scratch spill capacity/,
+);
+assertMachOObjectBuildabilityBlocked(
+  "conformance/native/pass/macho-open-byte-slice-blocked.0",
+  "macho-open-byte-slice.o",
+  /byte-view length/,
+);
 const machOObjectBlockedReadiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/memory-package"]).body;
 assert.equal(machOObjectBlockedReadiness.ok, true);
 assert.equal(machOObjectBlockedReadiness.diagnostics.length, 0);
@@ -1383,9 +1470,9 @@ assert.equal(machOObjectBlockedReadiness.targetReadiness.buildable, false);
 assert.equal(machOObjectBlockedReadiness.targetReadiness.languageOk, true);
 assert.equal(machOObjectBlockedReadiness.targetReadiness.emit, "obj");
 assert.equal(machOObjectBlockedReadiness.targetReadiness.target, "darwin-arm64");
-assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].code, "BLD004");
 assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
-assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
+assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
 
 const diagnostics = [
   ["PAR100", ["check", "--json", "conformance/check/fail/parse-missing-brace.0"]],

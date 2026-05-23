@@ -149,7 +149,7 @@ describe("native zero CLI", () => {
 
     const objOut = join(tmpdir(), `zero-target-${Date.now()}.o`);
     try {
-      const objBuild = await runZero(["build", "--emit", "obj", "--target", "linux-musl-arm64", "examples/hello.0", "--out", objOut]);
+      const objBuild = await runZero(["build", "--emit", "obj", "--target", "linux-musl-arm64", "examples/direct-exe-return.0", "--out", objOut]);
       assert.ok(objBuild.stdout.includes(`${objOut} (`));
       assert.match(objBuild.stdout, artifactSummaryPattern);
       const bytes = await readFile(objOut);

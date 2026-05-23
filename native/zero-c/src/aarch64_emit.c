@@ -90,6 +90,18 @@ void z_aarch64_emit_mov_x(ZBuf *text, unsigned dst, unsigned src) {
   z_aarch64_append_u32(text, 0xaa0003e0u | ((src & 31u) << 16) | (dst & 31u));
 }
 
+void z_aarch64_emit_uxtb_w(ZBuf *text, unsigned dst, unsigned src) {
+  z_aarch64_append_u32(text, 0x53000000u | (7u << 10) | ((src & 31u) << 5) | (dst & 31u));
+}
+
+void z_aarch64_emit_uxth_w(ZBuf *text, unsigned dst, unsigned src) {
+  z_aarch64_append_u32(text, 0x53000000u | (15u << 10) | ((src & 31u) << 5) | (dst & 31u));
+}
+
+void z_aarch64_emit_sxtw_x(ZBuf *text, unsigned dst, unsigned src) {
+  z_aarch64_append_u32(text, 0x93400000u | (31u << 10) | ((src & 31u) << 5) | (dst & 31u));
+}
+
 void z_aarch64_emit_mov_x29_sp(ZBuf *text) {
   z_aarch64_append_u32(text, 0x910003fdu);
 }

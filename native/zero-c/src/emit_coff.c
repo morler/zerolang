@@ -40,6 +40,25 @@ static bool coff_type_is_scalar32(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE;
 }
 
+static void coff_emit_cast_normalize_rax(ZBuf *text, IrTypeKind target) {
+  switch (target) {
+    case IR_TYPE_BOOL:
+    case IR_TYPE_U8:
+      z_x64_emit_and_reg_u32(text, 0, 0xff, false);
+      return;
+    case IR_TYPE_U16:
+      z_x64_emit_and_reg_u32(text, 0, 0xffff, false);
+      return;
+    case IR_TYPE_I32:
+    case IR_TYPE_U32:
+    case IR_TYPE_USIZE:
+      z_x64_emit_mov_reg_from_reg(text, 0, 0, false);
+      return;
+    default:
+      return;
+  }
+}
+
 static unsigned coff_local_offset(const IrFunction *fun, unsigned local_index) {
   if (fun && local_index < fun->local_len && fun->locals[local_index].frame_offset > 0) return fun->locals[local_index].frame_offset;
   return (local_index + 1) * 8;
@@ -254,6 +273,10 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
         return coff_diag_at(diag, "direct COFF byte-view local cannot be used as a scalar", value->line, value->column, "byte-view local");
       }
       coff_emit_load_local_eax(text, fun, value->local_index);
+      return true;
+    case IR_VALUE_CAST:
+      if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+      coff_emit_cast_normalize_rax(text, value->type);
       return true;
     case IR_VALUE_BINARY:
       if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL) return coff_diag_at(diag, "direct COFF binary operator is unsupported", value->line, value->column, "unsupported operator");
@@ -748,7 +771,7 @@ static const IrFunction *coff_find_executable_main(const IrProgram *program, ZDi
     return NULL;
   }
   if (fun->return_type != IR_TYPE_VOID && !coff_type_is_scalar32(fun->return_type)) {
-    coff_diag_at(diag, "direct COFF x64 executable main must return Void, i32, or u32", fun->line, fun->column, fun->name);
+    coff_diag_at(diag, "direct COFF x64 executable main must return Void or a 32-bit-or-smaller scalar", fun->line, fun->column, fun->name);
     return NULL;
   }
   if (out_index) *out_index = index;

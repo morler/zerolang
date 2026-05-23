@@ -660,6 +660,11 @@ static bool mir_verify_same_type_operands(IrProgram *ir, const IrValue *value, c
   return false;
 }
 
+static bool mir_verify_cast_value_contract(IrProgram *ir, const IrValue *value) {
+  if (!mir_verify_direct_primitive_value(ir, value, "MIR verifier found cast result type mismatch", "cast result")) return false;
+  return mir_verify_direct_primitive_value(ir, value ? value->left : NULL, "MIR verifier found cast input type mismatch", "cast input");
+}
+
 static bool mir_verify_binary_value_contract(IrProgram *ir, const IrValue *value) {
   if (!mir_verify_direct_primitive_value(ir, value, "MIR verifier found binary result type mismatch", "binary result")) return false;
   if ((value->binary_op == IR_BIN_ADD || value->binary_op == IR_BIN_SUB ||
@@ -858,8 +863,8 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
       }
       return true;
     }
-    case IR_VALUE_BINARY:
-      return mir_verify_binary_value_contract(ir, value);
+    case IR_VALUE_CAST: return mir_verify_cast_value_contract(ir, value);
+    case IR_VALUE_BINARY: return mir_verify_binary_value_contract(ir, value);
     case IR_VALUE_COMPARE:
       return mir_verify_compare_value_contract(ir, value);
     case IR_VALUE_CALL:

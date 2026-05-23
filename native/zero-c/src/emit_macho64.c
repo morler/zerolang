@@ -85,6 +85,30 @@ static bool macho_type_is_scalar(IrTypeKind type) {
   return macho_type_is_scalar32(type) || macho_type_is_scalar64(type);
 }
 
+static void macho_emit_cast_normalize_reg(ZBuf *text, unsigned reg, IrTypeKind source, IrTypeKind target) {
+  switch (target) {
+    case IR_TYPE_BOOL:
+    case IR_TYPE_U8:
+      z_aarch64_emit_uxtb_w(text, reg, reg);
+      return;
+    case IR_TYPE_U16:
+      z_aarch64_emit_uxth_w(text, reg, reg);
+      return;
+    case IR_TYPE_I32:
+    case IR_TYPE_U32:
+    case IR_TYPE_USIZE:
+      z_aarch64_emit_mov_w(text, reg, reg);
+      return;
+    case IR_TYPE_I64:
+    case IR_TYPE_U64:
+      if (source == IR_TYPE_I32) z_aarch64_emit_sxtw_x(text, reg, reg);
+      else if (!macho_type_is_scalar64(source)) z_aarch64_emit_mov_w(text, reg, reg);
+      return;
+    default:
+      return;
+  }
+}
+
 static unsigned macho_slot_offset(unsigned local_index) {
   return local_index * 8;
 }
@@ -405,11 +429,16 @@ static bool macho_emit_call_to_reg(ZBuf *text, const IrFunction *fun, const IrVa
   return true;
 }
 
+static bool macho_emit_cast_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!macho_emit_value_to_reg_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
+  macho_emit_cast_normalize_reg(text, reg, value->left ? value->left->type : IR_TYPE_UNSUPPORTED, value->type);
+  return true;
+}
+
 static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
   if (!value) return macho_diag_at(diag, "direct AArch64 Mach-O expression is missing", 1, 1, "missing expression");
   switch (value->kind) {
-    case IR_VALUE_BOOL:
-    case IR_VALUE_INT:
+    case IR_VALUE_BOOL: case IR_VALUE_INT:
       if (macho_type_is_scalar64(value->type)) z_aarch64_emit_movz_x(text, reg, (uint64_t)value->int_value);
       else z_aarch64_emit_movz_w(text, reg, (uint32_t)value->int_value);
       return true;
@@ -421,6 +450,7 @@ static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const 
       if (macho_type_is_scalar64(fun->locals[value->local_index].type)) macho_emit_load_local_x(text, fun, reg, value->local_index, 0, frame_size);
       else macho_emit_load_local_w(text, fun, reg, value->local_index, 0, frame_size);
       return true;
+    case IR_VALUE_CAST: return macho_emit_cast_value_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_BINARY:
       if (value->binary_op == IR_BIN_AND) {
         if (!macho_emit_value_to_reg_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
@@ -1212,7 +1242,7 @@ static const IrFunction *macho_find_executable_main(const IrProgram *program, ZD
     return NULL;
   }
   if (fun->return_type != IR_TYPE_VOID && !macho_type_is_scalar32(fun->return_type)) {
-    macho_diag_at(diag, "direct AArch64 Mach-O executable main must return Void, i32, or u32", fun->line, fun->column, fun->name);
+    macho_diag_at(diag, "direct AArch64 Mach-O executable main must return Void or a 32-bit-or-smaller scalar", fun->line, fun->column, fun->name);
     return NULL;
   }
   if (out_index) *out_index = index;

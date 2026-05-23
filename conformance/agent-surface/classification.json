@@ -78,7 +78,7 @@
       "id": "direct-generic-specialization-name-collision",
       "path": "conformance/agent-surface/fixtures/direct-generic-specialization-name-collision.0",
       "classification": "unsupported-program-shape",
-      "currentBehavior": "check-pass-target-blocked-CGEN004",
+      "currentBehavior": "check-pass-target-blocked-BLD004",
       "followUp": "Keep direct generic specialization names from silently resolving to unrelated concrete functions.",
       "runner": "assert-target-blocked"
     },
@@ -141,9 +141,9 @@
     {
       "id": "owned-drop-direct-backend-unsupported",
       "path": "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0",
-      "classification": "backend-limitation-reported-late",
-      "currentBehavior": "check-pass-build-fail-CGEN004",
-      "followUp": "Report target-aware backend blockers before emission and keep backend diagnostics target-correct.",
+      "classification": "target-buildability-blocker",
+      "currentBehavior": "check-pass-target-blocked-BLD004",
+      "followUp": "Keep target-aware backend blockers before emission and keep backend diagnostics target-correct.",
       "runner": "assert-diagnostic-code"
     }
   ]

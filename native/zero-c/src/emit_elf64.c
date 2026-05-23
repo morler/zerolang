@@ -49,6 +49,30 @@ static bool elf_type_is_unsigned(IrTypeKind type) {
   return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_U32 || type == IR_TYPE_U64;
 }
 
+static void elf_emit_cast_normalize_rax(ZBuf *code, IrTypeKind source, IrTypeKind target) {
+  switch (target) {
+    case IR_TYPE_BOOL:
+    case IR_TYPE_U8:
+      z_x64_emit_and_reg_u32(code, 0, 0xff, false);
+      return;
+    case IR_TYPE_U16:
+      z_x64_emit_and_reg_u32(code, 0, 0xffff, false);
+      return;
+    case IR_TYPE_I32:
+    case IR_TYPE_U32:
+    case IR_TYPE_USIZE:
+      z_x64_emit_mov_reg_from_reg(code, 0, 0, false);
+      return;
+    case IR_TYPE_I64:
+    case IR_TYPE_U64:
+      if (source == IR_TYPE_I32) z_x64_emit_cdqe(code);
+      else if (source != IR_TYPE_I64 && source != IR_TYPE_U64) z_x64_emit_mov_reg_from_reg(code, 0, 0, false);
+      return;
+    default:
+      return;
+  }
+}
+
 static const char *elf_type_name(IrTypeKind type) {
   switch (type) {
     case IR_TYPE_VOID: return "Void";
@@ -380,22 +404,28 @@ static bool elf_emit_byte_view_len(ZBuf *code, const IrFunction *fun, const IrVa
     z_x64_emit_mov_eax_u32(code, len);
     return true;
   }
-  if (view && view->kind == IR_VALUE_BYTE_SLICE && view->index && view->right) {
+  if (view && view->kind == IR_VALUE_BYTE_SLICE && !view->right) {
+    if (!elf_emit_byte_view_len(code, fun, view->left, ctx, diag)) return false;
+    if (!view->index) return true;
     unsigned start = 0;
-    unsigned end = 0;
-    if (elf_const_u32_value(view->index, &start) && elf_const_u32_value(view->right, &end) && start <= end) {
-      z_x64_emit_mov_eax_u32(code, end - start);
+    if (elf_const_u32_value(view->index, &start)) {
+      if (start > 0) z_x64_emit_sub_rax_u32(code, start, true);
       return true;
     }
+    elf_emit_push_rax(code);
+    if (!elf_emit_value(code, fun, view->index, ctx, diag)) return false;
+    z_x64_emit_mov_rcx_from_rax(code, true);
+    z_x64_emit_pop_rax(code);
+    z_x64_emit_sub_rax_rcx(code, true);
+    return true;
   }
   if (view && view->kind == IR_VALUE_BYTE_SLICE && view->right) {
     unsigned start = 0;
-    if ((!view->index || elf_const_u32_value(view->index, &start)) &&
-        !elf_const_u32_value(view->right, NULL)) {
+    if (!view->index || elf_const_u32_value(view->index, &start)) {
+      unsigned end = 0;
+      if (elf_const_u32_value(view->right, &end) && start <= end) { z_x64_emit_mov_eax_u32(code, end - start); return true; }
       if (!elf_emit_value(code, fun, view->right, ctx, diag)) return false;
-      if (start > 0) {
-        z_x64_emit_sub_rax_u32(code, start, true);
-      }
+      if (start > 0) z_x64_emit_sub_rax_u32(code, start, true);
       return true;
     }
   }
@@ -844,6 +874,10 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
       if (fun->locals[value->local_index].is_array) return elf_diag(diag, "direct ELF64 cannot use fixed array locals as scalar values", value->line, value->column, "array local");
       elf_emit_load_local_rax(code, fun, value->local_index);
       return true;
+    case IR_VALUE_CAST:
+      if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
+      elf_emit_cast_normalize_rax(code, value->left ? value->left->type : IR_TYPE_UNSUPPORTED, value->type);
+      return true;
     case IR_VALUE_BINARY: {
       bool wide = elf_type_is_i64(value->type);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
@@ -1194,7 +1228,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
     return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer values", value->line, value->column, elf_type_name(value->type));
   }
   switch (value->kind) {
-    case IR_VALUE_BOOL: case IR_VALUE_INT: case IR_VALUE_LOCAL: case IR_VALUE_BINARY: case IR_VALUE_COMPARE: case IR_VALUE_CALL:
+    case IR_VALUE_BOOL: case IR_VALUE_INT: case IR_VALUE_LOCAL: case IR_VALUE_CAST: case IR_VALUE_BINARY: case IR_VALUE_COMPARE: case IR_VALUE_CALL:
       return elf_emit_core_value(code, fun, value, ctx, diag);
     case IR_VALUE_JSON_PARSE_BYTES: case IR_VALUE_JSON_VALIDATE_BYTES: case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
       return elf_emit_json_value(code, fun, value, ctx, diag);
@@ -1237,7 +1271,7 @@ static bool elf_validate_function(const IrFunction *fun, ZDiag *diag) {
   }
   for (size_t i = 0; i < fun->local_len; i++) {
     if (fun->locals[i].is_array) {
-      if (fun->locals[i].element_type != IR_TYPE_U8 && fun->locals[i].element_type != IR_TYPE_I32 && fun->locals[i].element_type != IR_TYPE_U32 && fun->locals[i].element_type != IR_TYPE_I64 && fun->locals[i].element_type != IR_TYPE_U64) {
+      if (fun->locals[i].element_type != IR_TYPE_U8 && fun->locals[i].element_type != IR_TYPE_I32 && fun->locals[i].element_type != IR_TYPE_U32 && fun->locals[i].element_type != IR_TYPE_USIZE && fun->locals[i].element_type != IR_TYPE_I64 && fun->locals[i].element_type != IR_TYPE_U64) {
         return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer fixed-array locals", fun->locals[i].line, fun->locals[i].column, elf_type_name(fun->locals[i].element_type));
       }
       continue;
@@ -1793,7 +1827,16 @@ static void elf_append_rodata(ZBuf *rodata, const IrProgram *ir, unsigned base_o
   }
 }
 
-bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
+typedef struct {
+  ZBuf text, rodata, rela_text, strtab, symtab;
+  size_t *function_offsets, *function_sizes;
+  uint32_t *symbol_names, runtime_names[ELF_RUNTIME_HELPER_COUNT];
+  ElfEmitContext ctx;
+  bool has_rodata;
+  unsigned rodata_base_offset;
+} ElfObjectBuild;
+
+static bool elf_validate_object_ir(const IrProgram *ir, ZDiag *diag) {
   if (!ir) return elf_diag(diag, "direct ELF64 object backend requires MIR", 1, 1, "missing MIR");
   if (!ir->mir_valid) return elf_ir_diag(diag, ir);
   if (ir->function_len == 0) return elf_diag(diag, "direct ELF64 object backend requires at least one exported function", 1, 1, "empty program");
@@ -1802,120 +1845,100 @@ bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
     if (ir->functions[i].is_exported) has_export = true;
     if (!elf_validate_function(&ir->functions[i], diag)) return false;
   }
-  if (!has_export) return elf_diag(diag, "direct ELF64 object backend requires at least one exported function", 1, 1, "no exported function");
+  return has_export ? true : elf_diag(diag, "direct ELF64 object backend requires at least one exported function", 1, 1, "no exported function");
+}
 
-  ZBuf text;
-  ZBuf rodata;
-  ZBuf rela_text;
-  ZBuf strtab;
-  ZBuf symtab;
-  zbuf_init(&text);
-  zbuf_init(&rodata);
-  zbuf_init(&rela_text);
-  zbuf_init(&strtab);
-  zbuf_init(&symtab);
-  z_elf_append_u8(&strtab, 0);
-  z_elf_append_zeros(&symtab, 24);
-  bool has_rodata = ir->readonly_data_bytes > 0 || ir->data_segment_len > 0;
-  unsigned rodata_base_offset = elf_rodata_base_offset(ir);
-  if (has_rodata) {
-    elf_append_rodata(&rodata, ir, rodata_base_offset);
-    z_elf_append_symbol(&symtab, 0, 0x03, 2, 0, 0);
+static void elf_object_build_init(ElfObjectBuild *build, const IrProgram *ir) {
+  zbuf_init(&build->text); zbuf_init(&build->rodata); zbuf_init(&build->rela_text); zbuf_init(&build->strtab); zbuf_init(&build->symtab);
+  z_elf_append_u8(&build->strtab, 0); z_elf_append_zeros(&build->symtab, 24);
+  build->has_rodata = ir->readonly_data_bytes > 0 || ir->data_segment_len > 0;
+  build->rodata_base_offset = elf_rodata_base_offset(ir);
+  if (build->has_rodata) {
+    elf_append_rodata(&build->rodata, ir, build->rodata_base_offset);
+    z_elf_append_symbol(&build->symtab, 0, 0x03, 2, 0, 0);
   }
+}
 
-  size_t *function_offsets = z_checked_calloc(ir->function_len, sizeof(size_t));
-  size_t *function_sizes = z_checked_calloc(ir->function_len, sizeof(size_t));
-  uint32_t *symbol_names = z_checked_calloc(ir->function_len, sizeof(uint32_t));
-  if (!function_offsets || !function_sizes || !symbol_names) {
-    free(function_offsets);
-    free(function_sizes);
-    free(symbol_names);
-    zbuf_free(&text);
-    zbuf_free(&rodata);
-    zbuf_free(&rela_text);
-    zbuf_free(&strtab);
-    zbuf_free(&symtab);
-    return elf_diag(diag, "direct ELF64 object backend ran out of memory", 1, 1, "allocation failed");
-  }
-  ElfEmitContext ctx = {
-    .ir = ir,
-    .function_offsets = function_offsets,
-    .function_count = ir->function_len,
-    .emit_rodata_relocations = true,
-    .seed_main_process_args = true,
-    .rodata_base_offset = rodata_base_offset
-  };
+static void elf_object_build_free(ElfObjectBuild *build) {
+  free(build->function_offsets); free(build->function_sizes); free(build->symbol_names);
+  z_elf_emit_context_free(&build->ctx);
+  zbuf_free(&build->text); zbuf_free(&build->rodata); zbuf_free(&build->rela_text); zbuf_free(&build->strtab); zbuf_free(&build->symtab);
+}
 
+static bool elf_object_build_alloc_tables(ElfObjectBuild *build, const IrProgram *ir, ZDiag *diag) {
+  build->function_offsets = z_checked_calloc(ir->function_len, sizeof(size_t));
+  build->function_sizes = z_checked_calloc(ir->function_len, sizeof(size_t));
+  build->symbol_names = z_checked_calloc(ir->function_len, sizeof(uint32_t));
+  return build->function_offsets && build->function_sizes && build->symbol_names ? true : elf_diag(diag, "direct ELF64 object backend ran out of memory", 1, 1, "allocation failed");
+}
+
+static void elf_object_build_start_context(ElfObjectBuild *build, const IrProgram *ir) {
+  build->ctx = (ElfEmitContext){.ir = ir, .function_offsets = build->function_offsets, .function_count = ir->function_len, .emit_rodata_relocations = true, .seed_main_process_args = true, .rodata_base_offset = build->rodata_base_offset};
+}
+
+static bool elf_emit_object_functions(ElfObjectBuild *build, const IrProgram *ir, ZDiag *diag) {
   for (size_t i = 0; i < ir->function_len; i++) {
-    z_elf_pad_to(&text, z_elf_align(text.len, 16));
-    function_offsets[i] = text.len;
-    if (!elf_emit_function_text(&text, &ir->functions[i], &ctx, diag)) {
-      free(function_offsets);
-      free(function_sizes);
-      free(symbol_names);
-      z_elf_emit_context_free(&ctx);
-      zbuf_free(&text);
-      zbuf_free(&rodata);
-      zbuf_free(&rela_text);
-      zbuf_free(&strtab);
-      zbuf_free(&symtab);
-      return false;
-    }
-    function_sizes[i] = text.len - function_offsets[i];
-    symbol_names[i] = (uint32_t)strtab.len;
-    zbuf_append(&strtab, ir->functions[i].name);
-    z_elf_append_u8(&strtab, 0);
+    z_elf_pad_to(&build->text, z_elf_align(build->text.len, 16));
+    build->function_offsets[i] = build->text.len;
+    if (!elf_emit_function_text(&build->text, &ir->functions[i], &build->ctx, diag)) return false;
+    build->function_sizes[i] = build->text.len - build->function_offsets[i];
+    build->symbol_names[i] = (uint32_t)build->strtab.len;
+    zbuf_append(&build->strtab, ir->functions[i].name); z_elf_append_u8(&build->strtab, 0);
   }
-  uint32_t runtime_names[ELF_RUNTIME_HELPER_COUNT] = {0};
+  return true;
+}
+
+static void elf_append_object_runtime_names(ElfObjectBuild *build) {
   for (unsigned helper = 0; helper < ELF_RUNTIME_HELPER_COUNT; helper++) {
     ElfRuntimeHelper runtime_helper = (ElfRuntimeHelper)helper;
-    if (z_elf_runtime_patch_count(&ctx, runtime_helper) == 0) continue;
-    runtime_names[helper] = (uint32_t)strtab.len;
-    zbuf_append(&strtab, z_elf_runtime_helper_symbol(runtime_helper));
-    z_elf_append_u8(&strtab, 0);
+    if (z_elf_runtime_patch_count(&build->ctx, runtime_helper) == 0) continue;
+    build->runtime_names[helper] = (uint32_t)build->strtab.len;
+    zbuf_append(&build->strtab, z_elf_runtime_helper_symbol(runtime_helper)); z_elf_append_u8(&build->strtab, 0);
   }
-  z_elf_patch_call_patches(&text, &ctx);
-  z_elf_append_rodata_relocations(&rela_text, &ctx, 1);
-  const uint32_t function_symbol_base = has_rodata ? 2u : 1u;
+}
+
+static void elf_finish_object_symbols(ElfObjectBuild *build, const IrProgram *ir) {
+  z_elf_patch_call_patches(&build->text, &build->ctx);
+  z_elf_append_rodata_relocations(&build->rela_text, &build->ctx, 1);
+  const uint32_t function_symbol_base = build->has_rodata ? 2u : 1u;
   uint32_t next_runtime_symbol = function_symbol_base + (uint32_t)ir->function_len;
   uint32_t runtime_symbols[ELF_RUNTIME_HELPER_COUNT] = {0};
   for (unsigned helper = 0; helper < ELF_RUNTIME_HELPER_COUNT; helper++) {
     ElfRuntimeHelper runtime_helper = (ElfRuntimeHelper)helper;
-    if (z_elf_runtime_patch_count(&ctx, runtime_helper) == 0) continue;
+    if (z_elf_runtime_patch_count(&build->ctx, runtime_helper) == 0) continue;
     runtime_symbols[helper] = next_runtime_symbol++;
-    z_elf_append_runtime_relocations(&rela_text, &ctx, runtime_helper, runtime_symbols[helper]);
+    z_elf_append_runtime_relocations(&build->rela_text, &build->ctx, runtime_helper, runtime_symbols[helper]);
   }
-
-  for (size_t i = 0; i < ir->function_len; i++) {
-    z_elf_append_symbol(&symtab, symbol_names[i], ir->functions[i].is_exported ? 0x12 : 0x02, 1, function_offsets[i], function_sizes[i]);
-  }
+  for (size_t i = 0; i < ir->function_len; i++) z_elf_append_symbol(&build->symtab, build->symbol_names[i], ir->functions[i].is_exported ? 0x12 : 0x02, 1, build->function_offsets[i], build->function_sizes[i]);
   for (unsigned helper = 0; helper < ELF_RUNTIME_HELPER_COUNT; helper++) {
     ElfRuntimeHelper runtime_helper = (ElfRuntimeHelper)helper;
-    if (z_elf_runtime_patch_count(&ctx, runtime_helper) == 0) continue;
-    z_elf_append_symbol(&symtab, runtime_names[helper], 0x12, 0, 0, 0);
+    if (z_elf_runtime_patch_count(&build->ctx, runtime_helper) == 0) continue;
+    z_elf_append_symbol(&build->symtab, build->runtime_names[helper], 0x12, 0, 0, 0);
   }
+}
+
+static void elf_write_object_image(ZBuf *out, ElfObjectBuild *build) {
   ZElfObjectImage image = {
-    .machine = Z_ELF_MACHINE_X86_64,
-    .text = &text,
-    .text_align = 16,
-    .rodata = has_rodata ? &rodata : NULL,
-    .rodata_align = 8,
-    .rela_text = rela_text.len > 0 ? &rela_text : NULL,
-    .symtab = &symtab,
-    .strtab = &strtab,
-    .local_symbol_count = has_rodata ? 2 : 1
+    .machine = Z_ELF_MACHINE_X86_64, .text = &build->text, .text_align = 16,
+    .rodata = build->has_rodata ? &build->rodata : NULL, .rodata_align = 8,
+    .rela_text = build->rela_text.len > 0 ? &build->rela_text : NULL,
+    .symtab = &build->symtab, .strtab = &build->strtab,
+    .local_symbol_count = build->has_rodata ? 2 : 1
   };
   z_elf_write_object64(out, &image);
+}
 
-  free(function_offsets);
-  free(function_sizes);
-  free(symbol_names);
-  z_elf_emit_context_free(&ctx);
-  zbuf_free(&text);
-  zbuf_free(&rodata);
-  zbuf_free(&rela_text);
-  zbuf_free(&strtab);
-  zbuf_free(&symtab);
+bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
+  if (!elf_validate_object_ir(ir, diag)) return false;
+  ElfObjectBuild build = {0};
+  elf_object_build_init(&build, ir);
+  if (!elf_object_build_alloc_tables(&build, ir, diag)) { elf_object_build_free(&build); return false; }
+  elf_object_build_start_context(&build, ir);
+  if (!elf_emit_object_functions(&build, ir, diag)) { elf_object_build_free(&build); return false; }
+  elf_append_object_runtime_names(&build);
+  elf_finish_object_symbols(&build, ir);
+  elf_write_object_image(out, &build);
+  elf_object_build_free(&build);
   return true;
 }
 
@@ -1941,7 +1964,7 @@ static const IrFunction *elf_find_executable_main(const IrProgram *ir, ZDiag *di
     return NULL;
   }
   if (!elf_type_is_scalar(fun->return_type) || elf_type_is_i64(fun->return_type)) {
-    elf_diag(diag, "direct ELF64 executable main must return i32 or u32", fun->line, fun->column, elf_type_name(fun->return_type));
+    elf_diag(diag, "direct ELF64 executable main must return a 32-bit-or-smaller scalar", fun->line, fun->column, elf_type_name(fun->return_type));
     return NULL;
   }
   if (!elf_validate_function(fun, diag)) return NULL;
@@ -1966,83 +1989,84 @@ static size_t elf_emit_start_stub(ZBuf *text) {
   return patch;
 }
 
-bool z_emit_elf64_exe_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
+typedef struct {
+  ZBuf text, rodata;
+  size_t *function_offsets;
+  ElfEmitContext ctx;
+  bool has_rodata;
+  unsigned rodata_base_offset, main_index;
+} ElfExeBuild;
+
+static bool elf_validate_executable_ir(const IrProgram *ir, ElfExeBuild *build, ZDiag *diag) {
   if (!ir) return elf_diag(diag, "direct ELF64 executable backend requires MIR", 1, 1, "missing MIR");
   if (!ir->mir_valid) return elf_ir_diag(diag, ir);
-  unsigned main_index = 0;
-  const IrFunction *main_fun = elf_find_executable_main(ir, diag, &main_index);
-  if (!main_fun) return false;
+  if (!elf_find_executable_main(ir, diag, &build->main_index)) return false;
   for (size_t i = 0; i < ir->function_len; i++) {
     if (!elf_validate_function(&ir->functions[i], diag)) return false;
   }
+  return true;
+}
 
-  const uint64_t base_addr = 0x400000;
-  const size_t ehdr_size = 64;
-  const size_t phdr_size = 56;
-  const size_t text_offset = ehdr_size + phdr_size;
-  const uint64_t entry_addr = base_addr + text_offset;
+static void elf_exe_build_init(ElfExeBuild *build, const IrProgram *ir) {
+  zbuf_init(&build->text); zbuf_init(&build->rodata);
+  build->has_rodata = ir->readonly_data_bytes > 0 || ir->data_segment_len > 0;
+  build->rodata_base_offset = elf_rodata_base_offset(ir);
+  if (build->has_rodata) elf_append_rodata(&build->rodata, ir, build->rodata_base_offset);
+}
 
-  ZBuf text;
-  ZBuf rodata;
-  zbuf_init(&text);
-  zbuf_init(&rodata);
-  bool has_rodata = ir->readonly_data_bytes > 0 || ir->data_segment_len > 0;
-  unsigned rodata_base_offset = elf_rodata_base_offset(ir);
-  if (has_rodata) elf_append_rodata(&rodata, ir, rodata_base_offset);
-  size_t start_stub_len = 3 + 5 + 2 + 5 + 2;
-  size_t first_function_offset = z_elf_align(start_stub_len, 16);
-  size_t *function_offsets = z_checked_calloc(ir->function_len, sizeof(size_t));
-  if (!function_offsets) {
-    zbuf_free(&text);
-    zbuf_free(&rodata);
-    return elf_diag(diag, "direct ELF64 executable backend ran out of memory", 1, 1, "allocation failed");
-  }
-  ElfEmitContext ctx = {
-    .ir = ir,
-    .function_offsets = function_offsets,
-    .function_count = ir->function_len,
-    .rodata_base_offset = rodata_base_offset
-  };
-  size_t start_call_patch = elf_emit_start_stub(&text);
-  z_elf_pad_to(&text, first_function_offset);
+static void elf_exe_build_free(ElfExeBuild *build) {
+  free(build->function_offsets);
+  z_elf_emit_context_free(&build->ctx);
+  zbuf_free(&build->text); zbuf_free(&build->rodata);
+}
+
+static bool elf_exe_build_alloc_tables(ElfExeBuild *build, const IrProgram *ir, ZDiag *diag) {
+  build->function_offsets = z_checked_calloc(ir->function_len, sizeof(size_t));
+  return build->function_offsets ? true : elf_diag(diag, "direct ELF64 executable backend ran out of memory", 1, 1, "allocation failed");
+}
+
+static void elf_exe_build_start_context(ElfExeBuild *build, const IrProgram *ir) {
+  build->ctx = (ElfEmitContext){.ir = ir, .function_offsets = build->function_offsets, .function_count = ir->function_len, .rodata_base_offset = build->rodata_base_offset};
+}
+
+static bool elf_emit_executable_functions(ElfExeBuild *build, const IrProgram *ir, size_t first_function_offset, ZDiag *diag) {
+  z_elf_pad_to(&build->text, first_function_offset);
   for (size_t i = 0; i < ir->function_len; i++) {
-    z_elf_pad_to(&text, z_elf_align(text.len, 16));
-    function_offsets[i] = text.len;
-    if (!elf_emit_function_text(&text, &ir->functions[i], &ctx, diag)) {
-      free(function_offsets);
-      z_elf_emit_context_free(&ctx);
-      zbuf_free(&text);
-      zbuf_free(&rodata);
-      return false;
-    }
+    z_elf_pad_to(&build->text, z_elf_align(build->text.len, 16));
+    build->function_offsets[i] = build->text.len;
+    if (!elf_emit_function_text(&build->text, &ir->functions[i], &build->ctx, diag)) return false;
   }
-  if (z_elf_has_runtime_patches(&ctx)) {
-    free(function_offsets);
-    z_elf_emit_context_free(&ctx);
-    zbuf_free(&text);
-    zbuf_free(&rodata);
-    return elf_diag(diag, "direct ELF64 executable runtime helpers require object emission and an explicit runtime link step", 1, 1, "use --emit obj and link zero_runtime.c");
-  }
-  z_x64_patch_rel32(&text, start_call_patch, function_offsets[main_index]);
-  z_elf_patch_call_patches(&text, &ctx);
+  return true;
+}
 
-  size_t rodata_offset = has_rodata ? z_elf_align(text_offset + text.len, 8) : 0;
-  ctx.rodata_addr = has_rodata ? base_addr + rodata_offset : 0;
-  z_elf_patch_rodata_patches(&text, &ctx);
+static bool elf_finish_executable_image(ElfExeBuild *build, ZBuf *out, size_t start_call_patch, size_t text_offset, uint64_t base_addr, uint64_t entry_addr, ZDiag *diag) {
+  if (z_elf_has_runtime_patches(&build->ctx)) return elf_diag(diag, "direct ELF64 executable runtime helpers require object emission and an explicit runtime link step", 1, 1, "use --emit obj and link zero_runtime.c");
+  z_x64_patch_rel32(&build->text, start_call_patch, build->function_offsets[build->main_index]);
+  z_elf_patch_call_patches(&build->text, &build->ctx);
+  size_t rodata_offset = build->has_rodata ? z_elf_align(text_offset + build->text.len, 8) : 0;
+  build->ctx.rodata_addr = build->has_rodata ? base_addr + rodata_offset : 0;
+  z_elf_patch_rodata_patches(&build->text, &build->ctx);
   ZElfExecutableImage image = {
-    .machine = Z_ELF_MACHINE_X86_64,
-    .base_addr = base_addr,
-    .entry_addr = entry_addr,
-    .text_offset = text_offset,
-    .text = &text,
-    .rodata = has_rodata ? &rodata : NULL,
-    .rodata_offset = rodata_offset,
+    .machine = Z_ELF_MACHINE_X86_64, .base_addr = base_addr, .entry_addr = entry_addr,
+    .text_offset = text_offset, .text = &build->text,
+    .rodata = build->has_rodata ? &build->rodata : NULL, .rodata_offset = rodata_offset,
     .segment_align = 0x1000
   };
   z_elf_write_executable64(out, &image);
-  free(function_offsets);
-  z_elf_emit_context_free(&ctx);
-  zbuf_free(&text);
-  zbuf_free(&rodata);
   return true;
+}
+
+bool z_emit_elf64_exe_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
+  ElfExeBuild build = {0};
+  if (!elf_validate_executable_ir(ir, &build, diag)) return false;
+  elf_exe_build_init(&build, ir);
+  if (!elf_exe_build_alloc_tables(&build, ir, diag)) { elf_exe_build_free(&build); return false; }
+  elf_exe_build_start_context(&build, ir);
+  const uint64_t base_addr = 0x400000;
+  const size_t text_offset = 64 + 56;
+  size_t start_call_patch = elf_emit_start_stub(&build.text);
+  if (!elf_emit_executable_functions(&build, ir, z_elf_align(3 + 5 + 2 + 5 + 2, 16), diag)) { elf_exe_build_free(&build); return false; }
+  bool ok = elf_finish_executable_image(&build, out, start_call_patch, text_offset, base_addr, base_addr + text_offset, diag);
+  elf_exe_build_free(&build);
+  return ok;
 }

@@ -200,6 +200,11 @@ void z_x64_emit_mov_reg_from_reg(ZBuf *buf, unsigned dst_reg, unsigned src_reg, 
   z_x64_append_u8(buf, 0xc0 | ((src_reg & 7u) << 3) | (dst_reg & 7u));
 }
 
+void z_x64_emit_cdqe(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x98);
+}
+
 void z_x64_emit_mov_reg_u32(ZBuf *buf, unsigned reg, uint32_t value) {
   z_x64_require_reg(reg);
   if (reg >= 8) z_x64_append_u8(buf, 0x41);

@@ -672,6 +672,13 @@ static IrValue *ir_new_value(IrProgram *ir, IrValueKind kind, IrTypeKind type, i
   return value;
 }
 
+static IrValue *ir_new_cast_value(IrProgram *ir, IrValue *inner, IrTypeKind type, int line, int column) {
+  if (inner->type == type) return inner;
+  IrValue *value = ir_new_value(ir, IR_VALUE_CAST, type, line, column);
+  value->left = inner;
+  return value;
+}
+
 static void ir_free_value(IrValue *value) {
   if (!value) return;
   ir_free_value(value->index);
@@ -1163,8 +1170,7 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         ir_mark_unsupported(ir, "direct backend cast target type is unsupported", expr->line, expr->column, expr->resolved_type ? expr->resolved_type : "unknown cast type");
         return false;
       }
-      inner->type = cast_type;
-      *out = inner;
+      *out = ir_new_cast_value(ir, inner, cast_type, expr->line, expr->column);
       return true;
     }
     case EXPR_NUMBER: {
