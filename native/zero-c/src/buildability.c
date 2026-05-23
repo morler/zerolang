@@ -265,7 +265,6 @@ static bool build_check_coff_byte_view_len(const ZBuildability *ctx, const IrFun
 static bool build_check_coff_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
   return build_check_coff_byte_view_ptr(ctx, fun, view, diag) && build_check_coff_byte_view_len(ctx, fun, view, diag);
 }
-
 static bool build_value_supported(const ZBuildability *ctx, const IrValue *value, bool local_set_value) {
   if (!ctx || !value) return false;
   if (ctx->backend == Z_BUILD_BACKEND_ELF_AARCH64) return true;
@@ -315,10 +314,12 @@ static bool build_check_value(const ZBuildability *ctx, const IrFunction *fun, c
   if (!build_value_supported(ctx, value, local_set_value)) {
     return build_diag(ctx, diag, "direct backend buildability does not support this MIR value", value->line, value->column, build_value_kind_name(value->kind));
   }
+  bool skip_left = false;
   if (ctx->backend == Z_BUILD_BACKEND_COFF_X64) {
     if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !build_check_coff_byte_view_len(ctx, fun, value->left, diag)) return false;
     if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
     if ((value->kind == IR_VALUE_FIXED_BUF_ALLOC || value->kind == IR_VALUE_VEC_INIT) && !build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
+    skip_left = value->kind == IR_VALUE_BYTE_VIEW_LEN || value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD || value->kind == IR_VALUE_FIXED_BUF_ALLOC || value->kind == IR_VALUE_VEC_INIT;
   }
   if (value->kind == IR_VALUE_BINARY) {
     bool supported = true;
@@ -338,7 +339,7 @@ static bool build_check_value(const ZBuildability *ctx, const IrFunction *fun, c
     return build_diag(ctx, diag, "direct backend buildability cannot use fixed array locals as scalar values", value->line, value->column, "array local");
   }
   if (value->index && !build_check_value(ctx, fun, value->index, false, diag)) return false;
-  if (value->left && !build_check_value(ctx, fun, value->left, false, diag)) return false;
+  if (value->left && !skip_left && !build_check_value(ctx, fun, value->left, false, diag)) return false;
   if (value->right && !build_check_value(ctx, fun, value->right, false, diag)) return false;
   for (size_t i = 0; i < value->arg_len; i++) {
     if (!build_check_value(ctx, fun, value->args[i], false, diag)) return false;
@@ -376,8 +377,9 @@ static bool build_check_instr(const ZBuildability *ctx, const IrFunction *fun, c
   if (ctx->backend == Z_BUILD_BACKEND_ELF_AARCH64) return true;
   switch (instr->kind) {
     case IR_INSTR_LOCAL_SET:
-      if (ctx->backend == Z_BUILD_BACKEND_COFF_X64 && instr->value && fun && instr->local_index < fun->local_len &&
-          fun->locals[instr->local_index].type == IR_TYPE_BYTE_VIEW && !build_check_coff_byte_view(ctx, fun, instr->value, diag)) return false;
+      if (ctx->backend == Z_BUILD_BACKEND_COFF_X64 && fun && instr->local_index < fun->local_len && fun->locals[instr->local_index].type == IR_TYPE_BYTE_VIEW) {
+        return !instr->value || build_check_coff_byte_view(ctx, fun, instr->value, diag);
+      }
       if (instr->value && !build_check_value(ctx, fun, instr->value, true, diag)) return false;
       return true;
     case IR_INSTR_INDEX_STORE:
@@ -387,7 +389,7 @@ static bool build_check_instr(const ZBuildability *ctx, const IrFunction *fun, c
       return true;
     case IR_INSTR_WORLD_WRITE:
       if (ctx->backend == Z_BUILD_BACKEND_COFF_X64 && instr->value && !build_check_coff_byte_view(ctx, fun, instr->value, diag)) return false;
-      if (instr->value && !build_check_value(ctx, fun, instr->value, false, diag)) return false;
+      if (ctx->backend != Z_BUILD_BACKEND_COFF_X64 && instr->value && !build_check_value(ctx, fun, instr->value, false, diag)) return false;
       if (instr->index && !build_check_value(ctx, fun, instr->index, false, diag)) return false;
       return true;
     case IR_INSTR_EXPR:

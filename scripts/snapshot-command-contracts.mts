@@ -1397,6 +1397,15 @@ for (const key of ["code", "path", "line", "column", "length", "expected", "actu
   assert.equal(directExeBlockedGraph.targetReadiness.diagnostics[0][key], directExeBlockedReadiness.targetReadiness.diagnostics[0][key]);
 }
 assert.equal(directExeBlockedGraph.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+const coffMaybeByteViewFixture = "conformance/native/pass/coff-maybe-byte-view-buildable.0";
+const coffMaybeByteViewReadiness = json(["check", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffMaybeByteViewFixture]).body;
+assert.equal(coffMaybeByteViewReadiness.ok, true);
+assert.equal(coffMaybeByteViewReadiness.targetReadiness.ok, true);
+assert.equal(coffMaybeByteViewReadiness.targetReadiness.buildable, true);
+assert.equal(coffMaybeByteViewReadiness.targetReadiness.backend, "zero-coff-x64");
+const coffMaybeByteViewBuild = json(["build", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffMaybeByteViewFixture, "--out", join(outDir, "coff-maybe-byte-view.obj")]).body;
+assert.equal(coffMaybeByteViewBuild.objectBackend.objectEmission.path, "direct-coff-x64-object");
+assert.equal(coffMaybeByteViewBuild.generatedCBytes, 0);
 const coffDynamicSliceFixture = "conformance/native/pass/coff-dynamic-byte-slice-blocked.0";
 const coffDynamicSliceReadiness = json(["check", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffDynamicSliceFixture]).body;
 assert.equal(coffDynamicSliceReadiness.ok, true);
