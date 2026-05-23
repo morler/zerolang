@@ -15,10 +15,10 @@ type CScanState = {
 };
 
 const fileBudgets = {
-  "native/zero-c/include/zero.h": { maxLines: 909, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero.h": { maxLines: 915, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9395, maxStrcmpCalls: 403 },
-  "native/zero-c/src/main.c": { maxLines: 9979, maxStrcmpCalls: 456 },
+  "native/zero-c/src/main.c": { maxLines: 9938, maxStrcmpCalls: 451 },
   "native/zero-c/src/ir.c": { maxLines: 3700, maxStrcmpCalls: 224 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -33,6 +33,7 @@ const fileBudgets = {
   "native/zero-c/src/coff_format.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_emit_state.c": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_emit_state.h": { maxLines: 70, maxStrcmpCalls: 0 },
+  "native/zero-c/src/direct_metrics.c": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_format.c": { maxLines: 220, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_format.h": { maxLines: 60, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_emit_state.c": { maxLines: 160, maxStrcmpCalls: 0 },
@@ -54,7 +55,7 @@ const fileBudgets = {
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/std_sig.c": { maxLines: 180, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_sig.h": { maxLines: 40, maxStrcmpCalls: 0 },
-  "native/zero-c/src/target_backend.c": { maxLines: 200, maxStrcmpCalls: 19 },
+  "native/zero-c/src/target_backend.c": { maxLines: 241, maxStrcmpCalls: 24 },
   "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
   "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
@@ -605,7 +606,11 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
       backendFormats.directTarget.mainDirectBackendDiagStringHelpers > 0 ||
       backendFormats.directTarget.mainBackendFromEmitterCalls > 0 ||
       backendFormats.directTarget.mainDirectPathFromEmitterHelpers > 0 ||
-      backendFormats.directTarget.mainObjectFormatSymbolChecks > 0) {
+      backendFormats.directTarget.mainObjectFormatSymbolChecks > 0 ||
+      backendFormats.directTarget.mainManualDirectToolchainJson > 0 ||
+      backendFormats.directTarget.mainDirectMetricMachoChecks > 0 ||
+      backendFormats.directTarget.mainDirectBackendNameHelpers > 0 ||
+      backendFormats.directTarget.mainDirectEmitSelectionHelpers > 0) {
     violations.push({
       kind: "direct-target-backend-matrix",
       directTarget: backendFormats.directTarget,
@@ -905,6 +910,10 @@ const backendFormats = {
     mainBackendFromEmitterCalls: countMatches(cCodeText(main), /z_direct_backend_from_emitter\s*\(/g),
     mainDirectPathFromEmitterHelpers: countMatches(cCodeText(main), /direct_(?:object_path|linker_flavor)_for_emitter\s*\(/g),
     mainObjectFormatSymbolChecks: countMatches(cCodeText(main), /strcmp\s*\(\s*object_format\s*,\s*"coff"\s*\)/g),
+    mainManualDirectToolchainJson: countMatches(cTextWithoutComments(main), /selectionSource\\":\\"direct-backend/g),
+    mainDirectMetricMachoChecks: countMatches(cCodeText(main), /z_(?:direct_object_backend|direct_exe_backend)\s*\([^)]*\)\s*==\s*Z_DIRECT_BACKEND_MACHO64/g),
+    mainDirectBackendNameHelpers: countMatches(cCodeText(main), /static const char \*(?:backend_blocker_backend_name|target_readiness_backend)\s*\(/g),
+    mainDirectEmitSelectionHelpers: countMatches(cCodeText(main), /static (?:ZDirectBackend|const char \*)direct_emit_(?:backend|emitter)\s*\(/g),
   },
   elf: {
     sharedWriter: /\bz_elf_write_object64\s*\(/.test(elfFormatSource) && /\bz_elf_write_executable64\s*\(/.test(elfFormatSource),

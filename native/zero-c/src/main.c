@@ -1956,7 +1956,6 @@ static void append_backend_blocker_json(ZBuf *buf, const ZBackendBlocker *blocke
 static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target, const Command *command, const char *emit_kind, const char *stage);
 static void init_direct_backend_diag(ZDiag *diag, const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *reason);
 static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const Command *command, const IrProgram *ir);
-static const char *direct_emit_emitter(const ZTargetInfo *target, const Command *command, const char *emit_kind);
 static void append_used_stdlib_helpers_json(ZBuf *buf, const HelperUseSummary *helpers);
 static void append_runtime_shims_json(ZBuf *buf, const char *emitted_symbol_text, const CapabilitySummary *caps);
 static const Function *find_program_function(const Program *program, const char *name);
@@ -4131,15 +4130,6 @@ static char *apply_target_suffix(const char *path, const ZTargetInfo *target) {
   return z_strdup(path);
 }
 
-static const char *backend_blocker_backend_name(const ZTargetInfo *target, const Command *command, const char *emit_kind) {
-  if (emit_kind && strcmp(emit_kind, "obj") == 0) return z_direct_object_emitter(target);
-  if (emit_kind && strcmp(emit_kind, "exe") == 0) {
-    if (command && command->backend && command->backend[0]) return command->backend;
-    return z_direct_exe_emitter(target);
-  }
-  return "none";
-}
-
 static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target, const Command *command, const char *emit_kind, const char *stage) {
   if (!diag || (diag->code != 4004 && diag->code != 2004)) return;
   const char *blocker_stage = diag->backend_blocker.present && diag->backend_blocker.stage[0] ? diag->backend_blocker.stage : stage;
@@ -4148,7 +4138,7 @@ static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target
   z_backend_blocker_set(&blocker,
                         target && target->name ? target->name : "unknown",
                         target && target->object_format ? target->object_format : "unknown",
-                        backend_blocker_backend_name(target, command, emit_kind),
+                        z_direct_backend_name_for_emit_kind(target, emit_kind, command ? command->backend : NULL),
                         blocker_stage && blocker_stage[0] ? blocker_stage : "emit",
                         unsupported_feature && unsupported_feature[0] ? unsupported_feature : "unsupported construct");
   z_diag_set_backend_blocker(diag, &blocker);
@@ -4488,29 +4478,33 @@ static const char *public_linker_label(const char *linker) {
   return linker ? linker : "";
 }
 
+static void append_toolchain_plan_value_json(ZBuf *buf, const ZToolchainPlan *plan) {
+  zbuf_append(buf, "{\"driverKind\":");
+  append_json_string(buf, public_driver_kind(plan ? plan->driver_kind : ""));
+  zbuf_append(buf, ",\"selectionSource\":");
+  append_json_string(buf, plan ? plan->selection_source : "");
+  zbuf_append(buf, ",\"compiler\":");
+  append_json_string(buf, public_compiler_label(plan));
+  zbuf_append(buf, ",\"targetTriple\":");
+  append_json_string(buf, plan ? plan->target_triple : "");
+  zbuf_append(buf, ",\"linkerFlavor\":");
+  append_json_string(buf, public_linker_label(plan ? plan->linker_flavor : ""));
+  zbuf_append(buf, ",\"libcMode\":");
+  append_json_string(buf, plan ? plan->libc_mode : "");
+  zbuf_appendf(buf, ",\"requiresSysroot\":%s", plan && plan->requires_sysroot ? "true" : "false");
+  zbuf_append(buf, ",\"sysrootEnv\":");
+  append_json_string(buf, plan ? plan->sysroot_env : "");
+  zbuf_append(buf, ",\"sysrootStatus\":");
+  append_json_string(buf, plan ? plan->sysroot_status : "");
+  zbuf_appendf(buf, ",\"usesTargetFlag\":%s", plan && plan->uses_target_flag ? "true" : "false");
+  zbuf_appendf(buf, ",\"usesToolchainCache\":%s", plan && plan->uses_zig_cache ? "true" : "false");
+  zbuf_appendf(buf, ",\"stripArtifact\":%s", plan && plan->strip_artifact ? "true" : "false");
+  zbuf_append(buf, "}");
+}
+
 static void append_toolchain_plan_json(ZBuf *buf, const Command *command, const ZTargetInfo *target) {
   ZToolchainPlan plan = z_plan_toolchain(command ? command->cc : NULL, command ? command->profile : NULL, target);
-  zbuf_append(buf, "{\"driverKind\":");
-  append_json_string(buf, public_driver_kind(plan.driver_kind));
-  zbuf_append(buf, ",\"selectionSource\":");
-  append_json_string(buf, plan.selection_source);
-  zbuf_append(buf, ",\"compiler\":");
-  append_json_string(buf, public_compiler_label(&plan));
-  zbuf_append(buf, ",\"targetTriple\":");
-  append_json_string(buf, plan.target_triple);
-  zbuf_append(buf, ",\"linkerFlavor\":");
-  append_json_string(buf, public_linker_label(plan.linker_flavor));
-  zbuf_append(buf, ",\"libcMode\":");
-  append_json_string(buf, plan.libc_mode);
-  zbuf_appendf(buf, ",\"requiresSysroot\":%s", plan.requires_sysroot ? "true" : "false");
-  zbuf_append(buf, ",\"sysrootEnv\":");
-  append_json_string(buf, plan.sysroot_env);
-  zbuf_append(buf, ",\"sysrootStatus\":");
-  append_json_string(buf, plan.sysroot_status);
-  zbuf_appendf(buf, ",\"usesTargetFlag\":%s", plan.uses_target_flag ? "true" : "false");
-  zbuf_appendf(buf, ",\"usesToolchainCache\":%s", plan.uses_zig_cache ? "true" : "false");
-  zbuf_appendf(buf, ",\"stripArtifact\":%s", plan.strip_artifact ? "true" : "false");
-  zbuf_append(buf, "}");
+  append_toolchain_plan_value_json(buf, &plan);
 }
 
 static void append_direct_backend_facts_json(ZBuf *buf, const SourceInput *input) {
@@ -4863,19 +4857,6 @@ static void append_portable_runtime_json(ZBuf *buf, const IrProgram *ir, const S
   zbuf_append(buf, "}");
 }
 
-static ZDirectBackend direct_emit_backend(const ZTargetInfo *target, const Command *command, const char *emit_kind) {
-  if (emit_kind && strcmp(emit_kind, "obj") == 0) return z_direct_object_backend(target);
-  if (emit_kind && strcmp(emit_kind, "exe") == 0 && command && command->backend) return z_direct_exe_backend(target);
-  return Z_DIRECT_BACKEND_NONE;
-}
-
-static const char *direct_emit_emitter(const ZTargetInfo *target, const Command *command, const char *emit_kind) {
-  ZDirectBackend backend = direct_emit_backend(target, command, emit_kind);
-  if (backend == Z_DIRECT_BACKEND_NONE) return "none";
-  if (emit_kind && strcmp(emit_kind, "exe") == 0) return z_direct_backend_exe_emitter(backend);
-  return z_direct_backend_object_emitter(backend);
-}
-
 static const char *release_artifact_kind_for_emit(const ZTargetInfo *target, const char *emit_kind) {
   const char *object_format = target && target->object_format ? target->object_format : "unknown";
   (void)object_format;
@@ -4912,7 +4893,7 @@ static void append_target_capability_names_json(ZBuf *buf, const ZTargetInfo *ta
 }
 
 static void append_release_target_contract_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const Command *command, const char *emit_kind) {
-  ZDirectBackend selected_backend = direct_emit_backend(target, command, emit_kind);
+  ZDirectBackend selected_backend = z_direct_backend_for_emit_kind(target, emit_kind, command ? command->backend : NULL);
   const char *object_format = target && target->object_format ? target->object_format : "unknown";
   bool selected_executable = emit_kind && strcmp(emit_kind, "exe") == 0;
   if (selected_backend == Z_DIRECT_BACKEND_NONE && selected_executable) selected_backend = z_direct_exe_backend(target);
@@ -4986,8 +4967,8 @@ static void append_release_target_contract_json(ZBuf *buf, const SourceInput *in
 }
 
 static void append_object_backend_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const Command *command, const char *emit_kind) {
-  ZDirectBackend direct_backend = direct_emit_backend(target, command, emit_kind);
-  const char *direct_emitter = direct_emit_emitter(target, command, emit_kind);
+  ZDirectBackend direct_backend = z_direct_backend_for_emit_kind(target, emit_kind, command ? command->backend : NULL);
+  const char *direct_emitter = z_direct_backend_emitter_for_emit_kind(target, emit_kind, command ? command->backend : NULL);
   bool metadata_only_direct = emit_kind && (strcmp(emit_kind, "mem") == 0 || strcmp(emit_kind, "size") == 0);
   bool runtime_linked_exe = emit_kind && strcmp(emit_kind, "exe") == 0 && input && input->direct_host_runtime_import_count > 0;
   if (runtime_linked_exe) {
@@ -5349,23 +5330,16 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   printf(",\n  \"legacyBackend\": null");
   printf(",\n  \"warnings\": []");
   printf(",\n  \"compiler\": ");
-  ZDirectBackend direct_backend = direct_emit_backend(target, command, emit_kind);
+  ZDirectBackend direct_backend = z_direct_backend_for_emit_kind(target, emit_kind, command ? command->backend : NULL);
   const char *driver_kind = z_direct_backend_object_emitter(direct_backend);
   if (direct_backend != Z_DIRECT_BACKEND_NONE) print_json_string(driver_kind);
   else print_json_string(build_compiler_label(command, target));
   printf(",\n  \"toolchain\": ");
   if (direct_backend != Z_DIRECT_BACKEND_NONE) {
     ZBuf direct_toolchain;
+    ZToolchainPlan direct_plan = z_direct_backend_toolchain_plan(direct_backend, target);
     zbuf_init(&direct_toolchain);
-    zbuf_append(&direct_toolchain, "{\"driverKind\":");
-    append_json_string(&direct_toolchain, driver_kind);
-    zbuf_append(&direct_toolchain, ",\"selectionSource\":\"direct-backend\",\"compiler\":");
-    append_json_string(&direct_toolchain, driver_kind);
-    zbuf_append(&direct_toolchain, ",\"targetTriple\":");
-    append_json_string(&direct_toolchain, target && target->zig_target ? target->zig_target : "");
-    zbuf_append(&direct_toolchain, ",\"linkerFlavor\":");
-    append_json_string(&direct_toolchain, z_direct_backend_linker_flavor(direct_backend));
-    zbuf_append(&direct_toolchain, ",\"libcMode\":\"none\",\"requiresSysroot\":false,\"sysrootEnv\":\"\",\"sysrootStatus\":\"not-required\",\"usesTargetFlag\":false,\"usesToolchainCache\":false,\"stripArtifact\":false}");
+    append_toolchain_plan_value_json(&direct_toolchain, &direct_plan);
     fputs(direct_toolchain.data, stdout);
     zbuf_free(&direct_toolchain);
   } else {
@@ -8398,13 +8372,8 @@ static void apply_ir_metrics_to_input(SourceInput *input, const IrProgram *ir, c
   input->lowered_ir_bytes = ir->mir_bytes;
   input->direct_function_count = ir->direct_function_count;
   input->direct_export_count = ir->direct_export_count;
-  input->direct_stack_bytes = ir->direct_stack_bytes;
-  input->direct_max_frame_bytes = ir->direct_max_frame_bytes;
-  if (z_direct_object_backend(target) == Z_DIRECT_BACKEND_MACHO64 ||
-      z_direct_exe_backend(target) == Z_DIRECT_BACKEND_MACHO64) {
-    input->direct_stack_bytes = z_macho64_stack_bytes_from_ir(ir);
-    input->direct_max_frame_bytes = z_macho64_max_frame_bytes_from_ir(ir);
-  }
+  input->direct_stack_bytes = z_direct_target_stack_bytes(target, ir);
+  input->direct_max_frame_bytes = z_direct_target_max_frame_bytes(target, ir);
   input->direct_readonly_data_bytes = ir->direct_readonly_data_bytes;
   input->direct_allocator_helper_count = ir->direct_allocator_helper_count;
   input->direct_buffer_helper_count = ir->direct_buffer_helper_count;
@@ -8486,16 +8455,6 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
   return false;
 }
 
-static const char *target_readiness_backend(const ZTargetInfo *target, const Command *command) {
-  EmitKind emit = command ? command->emit : EMIT_EXE;
-  if (emit == EMIT_OBJ) return z_direct_object_emitter(target);
-  if (emit == EMIT_EXE) {
-    if (command && command->backend && command->backend[0]) return command->backend;
-    return z_direct_exe_emitter(target);
-  }
-  return "none";
-}
-
 static void append_target_readiness_diagnostic_json(ZBuf *buf, const char *path, const ZDiag *diag) {
   zbuf_append(buf, "{\"severity\":\"error\",\"code\":");
   append_json_string(buf, diag_code(diag->code));
@@ -8565,7 +8524,7 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
   zbuf_append(buf, ",\"objectFormat\":");
   append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
   zbuf_append(buf, ",\"backend\":");
-  append_json_string(buf, ready || !diag.backend_blocker.present ? target_readiness_backend(target, command) : diag.backend_blocker.backend);
+  append_json_string(buf, ready || !diag.backend_blocker.present ? z_direct_backend_name_for_emit_kind(target, emit_kind, command ? command->backend : NULL) : diag.backend_blocker.backend);
   zbuf_append(buf, ",\"stage\":");
   append_json_string(buf, ready ? "ready" : (diag.backend_blocker.present && diag.backend_blocker.stage[0] ? diag.backend_blocker.stage : "select"));
   zbuf_append(buf, ",\"diagnostics\":[");
