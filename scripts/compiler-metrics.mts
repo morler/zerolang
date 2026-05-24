@@ -17,7 +17,7 @@ type CScanState = {
 const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 966, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
-  "native/zero-c/src/checker.c": { maxLines: 9395, maxStrcmpCalls: 403 },
+  "native/zero-c/src/checker.c": { maxLines: 9259, maxStrcmpCalls: 282 },
   "native/zero-c/src/main.c": { maxLines: 9872, maxStrcmpCalls: 441 },
   "native/zero-c/src/ir.c": { maxLines: 3700, maxStrcmpCalls: 224 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
@@ -55,7 +55,7 @@ const fileBudgets = {
   "native/zero-c/src/specialize.c": { maxLines: 150, maxStrcmpCalls: 2 },
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/std_sig.c": { maxLines: 180, maxStrcmpCalls: 2 },
-  "native/zero-c/src/std_sig.h": { maxLines: 40, maxStrcmpCalls: 0 },
+  "native/zero-c/src/std_sig.h": { maxLines: 26, maxStrcmpCalls: 0 },
   "native/zero-c/src/target_backend.c": { maxLines: 348, maxStrcmpCalls: 32 },
   "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
   "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
@@ -78,7 +78,6 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/ir.c|static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFunction *mir_fun, const Stmt *stmt, IrInstr **out_items, size_t *out_len, size_t *out_cap, bool *saw_return) {", 172],
   ["native/zero-c/src/checker.c|static bool expr_reference_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {", 152],
   ["native/zero-c/src/main.c|static int run_tests_direct(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target) {", 151],
-  ["native/zero-c/src/checker.c|static const char *std_call_arg_type(const char *name, size_t index) {", 139],
 ]);
 
 const knownReturnTypeDivergences = new Map([
@@ -408,6 +407,41 @@ function parseCheckerArgTypeNames(text) {
   return namesFromRegex(block, /strcmp\(name,\s+"(std\.[^"]+)"/g);
 }
 
+function parseCheckerArgTypeInfo(text) {
+  const names = parseCheckerArgTypeNames(text);
+  return {
+    names,
+    map: new Map(names.map((name) => [name, []])),
+    duplicates: duplicates(names),
+  };
+}
+
+function parseStdHelperArgTypes(text) {
+  const block = cTextWithoutComments(cBlock(text, "const ZStdHelperInfo z_std_helpers[] ="));
+  const names = [];
+  const map = new Map();
+  for (const match of block.matchAll(/\{\s*"([^"]+)"\s*,\s*"[^"]+"\s*,\s*-?\d+\s*,\s*\{([^}]*)\}/g)) {
+    const args = match[2]
+      .split(",")
+      .map((arg) => arg.trim())
+      .filter((arg) => arg.length > 0)
+      .map((arg) => arg === "NULL" ? null : arg.replace(/^"|"$/g, ""));
+    if (!args.some((arg) => arg !== null)) continue;
+    names.push(match[1]);
+    if (!map.has(match[1])) map.set(match[1], args);
+  }
+  return {
+    names: names.sort((a, b) => a.localeCompare(b)),
+    map,
+    duplicates: duplicates(names),
+  };
+}
+
+function checkerUsesSharedArgTypes(text) {
+  const block = cTextWithoutComments(cBlock(text, "static const char *std_call_arg_type"));
+  return /\bz_std_helper_arg_type\s*\(/.test(block);
+}
+
 function helperReturnTypeMismatches(helpers, checkerReturnTypes) {
   return helpers
     .filter((helper) => checkerReturnTypes.has(helper.name) && checkerReturnTypes.get(helper.name) !== helper.returnType)
@@ -426,6 +460,17 @@ function helperArgCountMismatches(helpers, checkerArgCounts) {
       name: helper.name,
       helperArgCount: helper.argCount,
       checkerArgCount: checkerArgCounts.get(helper.name),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function helperArgTypeArityMismatches(helpers, checkerArgTypes) {
+  return helpers
+    .filter((helper) => checkerArgTypes.has(helper.name) && checkerArgTypes.get(helper.name).length !== helper.argCount)
+    .map((helper) => ({
+      name: helper.name,
+      helperArgCount: helper.argCount,
+      checkerArgTypeCount: checkerArgTypes.get(helper.name).length,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -558,6 +603,18 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
     violations.push({
       kind: "stdlib-checker-arg-type-extra",
       names: stdlib.checkerArgTypesMissingFromMainHelpers,
+    });
+  }
+  if (stdlib.duplicateCheckerArgTypes.length > 0) {
+    violations.push({
+      kind: "duplicate-checker-stdlib-arg-type",
+      helpers: stdlib.duplicateCheckerArgTypes,
+    });
+  }
+  if (stdlib.argTypeArityMismatches.length > 0) {
+    violations.push({
+      kind: "stdlib-helper-arg-type-arity-mismatch",
+      mismatches: stdlib.argTypeArityMismatches,
     });
   }
   const unexpectedArgTypeGaps = missingFrom(
@@ -796,7 +853,10 @@ if (checkerArgCountsUseSharedTable) {
     checkerArgCounts.set(helper.name, helper.argCount);
   }
 }
-const checkerArgTypeNames = parseCheckerArgTypeNames(checker);
+const stdHelperArgTypeInfo = parseStdHelperArgTypes(stdSig);
+const checkerArgTypesUseSharedTable = checkerUsesSharedArgTypes(checker);
+const checkerArgTypeInfo = checkerArgTypesUseSharedTable ? stdHelperArgTypeInfo : parseCheckerArgTypeInfo(checker);
+const checkerArgTypeNames = checkerArgTypeInfo.names;
 const checkerKnownStdNames = namesFromRegex(cTextWithoutComments(checker), /"(std\.[^"]+)"/g);
 const checkerReturnNames = sortedMapKeys(checkerReturnTypes);
 const checkerArgCountNames = sortedMapKeys(checkerArgCounts);
@@ -820,6 +880,7 @@ const stdlib = {
   duplicateMainHelpers: duplicates(mainHelperNames),
   duplicateCheckerReturnTypes: checkerReturnTypeInfo.duplicates,
   duplicateCheckerArgCounts: checkerArgCountInfo.duplicates,
+  duplicateCheckerArgTypes: checkerArgTypeInfo.duplicates,
   returnNamesMissingFromMainHelpers: missingFrom(checkerReturnNames, mainHelperNames),
   checkerReturnsMissingFromMainHelpers: missingFrom(checkerReturnNames, mainHelperNames),
   mainHelpersMissingFromCheckerReturns: missingFrom(mainHelperNames, checkerReturnNames),
@@ -828,11 +889,13 @@ const stdlib = {
   mainHelpersMissingFromCheckerArgCounts: missingFrom(mainHelperNames, checkerArgCountNames),
   argCountMismatches: helperArgCountMismatches(stdHelpers, checkerArgCounts),
   checkerArgTypesMissingFromMainHelpers: missingFrom(checkerArgTypeNames, mainHelperNames),
+  argTypeArityMismatches: helperArgTypeArityMismatches(stdHelpers, checkerArgTypeInfo.map),
   nonzeroArgHelpersMissingFromCheckerArgTypes: missingFrom(nonzeroArgHelperNames, checkerArgTypeNames),
   mainHelpersMissingFromCheckerKnownNames: checkerReturnTypesUseSharedTable && checkerArgCountsUseSharedTable ? [] : missingFrom(mainHelperNames, checkerKnownStdNames),
   sharedSignatureLookup: {
     checkerReturnTypes: checkerReturnTypesUseSharedTable,
     checkerArgCounts: checkerArgCountsUseSharedTable,
+    checkerArgTypes: checkerArgTypesUseSharedTable,
   },
 };
 const elfFormatSource = texts.get("native/zero-c/src/elf_format.c") ?? "";
