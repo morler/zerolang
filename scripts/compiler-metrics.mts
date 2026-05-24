@@ -17,7 +17,7 @@ type CScanState = {
 const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 966, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
-  "native/zero-c/src/checker.c": { maxLines: 9402, maxStrcmpCalls: 279 },
+  "native/zero-c/src/checker.c": { maxLines: 9407, maxStrcmpCalls: 279 },
   "native/zero-c/src/main.c": { maxLines: 9876, maxStrcmpCalls: 441 },
   "native/zero-c/src/ir.c": { maxLines: 3700, maxStrcmpCalls: 224 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
@@ -54,8 +54,8 @@ const fileBudgets = {
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/specialize.c": { maxLines: 150, maxStrcmpCalls: 2 },
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
-  "native/zero-c/src/std_sig.c": { maxLines: 202, maxStrcmpCalls: 2 },
-  "native/zero-c/src/std_sig.h": { maxLines: 31, maxStrcmpCalls: 0 },
+  "native/zero-c/src/std_sig.c": { maxLines: 206, maxStrcmpCalls: 2 },
+  "native/zero-c/src/std_sig.h": { maxLines: 48, maxStrcmpCalls: 0 },
   "native/zero-c/src/target_backend.c": { maxLines: 348, maxStrcmpCalls: 32 },
   "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
   "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
@@ -86,6 +86,19 @@ const allowedHelpersWithSpecialArgTypeChecks = [
   "std.mem.eqlBytes",
   "std.mem.len",
 ];
+
+const expectedStdHelperKinds = new Map([
+  ["std.mem.len", "Z_STD_HELPER_KIND_MEM_LEN"],
+  ["std.mem.get", "Z_STD_HELPER_KIND_MEM_GET"],
+  ["std.mem.eqlBytes", "Z_STD_HELPER_KIND_MEM_EQL_BYTES"],
+  ["std.mem.allocBytes", "Z_STD_HELPER_KIND_MEM_ALLOC_BYTES"],
+  ["std.mem.byteBuf", "Z_STD_HELPER_KIND_MEM_BYTE_BUF"],
+  ["std.fs.read", "Z_STD_HELPER_KIND_FS_READ"],
+  ["std.fs.readAll", "Z_STD_HELPER_KIND_FS_READ_ALL"],
+  ["std.fs.readAllOrRaise", "Z_STD_HELPER_KIND_FS_READ_ALL_OR_RAISE"],
+  ["std.json.parse", "Z_STD_HELPER_KIND_JSON_PARSE"],
+  ["std.json.parseBytes", "Z_STD_HELPER_KIND_JSON_PARSE_BYTES"],
+]);
 
 async function nativeSourceFiles() {
   const groups = await Promise.all(sourceFileDirs.map(async (dir) => {
@@ -456,6 +469,28 @@ function parseStdHelperErrors(text) {
   };
 }
 
+function stdHelperKindMismatches(text) {
+  const block = cTextWithoutComments(cBlock(text, "const ZStdHelperInfo z_std_helpers[] ="));
+  const actualKinds = new Map();
+  for (const line of block.split("\n")) {
+    const match = line.match(/\{\s*"([^"]+)".*(Z_STD_HELPER_KIND_[A-Z_]+)\s*\},/);
+    if (match) actualKinds.set(match[1], match[2]);
+  }
+  const mismatches = [];
+  for (const [name, expectedKind] of expectedStdHelperKinds) {
+    const actualKind = actualKinds.get(name);
+    if (actualKind !== expectedKind) {
+      mismatches.push({ name, expectedKind, actualKind: actualKind ?? "<missing>" });
+    }
+  }
+  for (const [name, actualKind] of actualKinds) {
+    if (actualKind !== "Z_STD_HELPER_KIND_TABLE" && expectedStdHelperKinds.get(name) !== actualKind) {
+      mismatches.push({ name, expectedKind: expectedStdHelperKinds.get(name) ?? "Z_STD_HELPER_KIND_TABLE", actualKind });
+    }
+  }
+  return mismatches.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function checkerUsesSharedArgTypes(text) {
   const resolver = cTextWithoutComments(cBlock(text, "static bool resolve_stdlib_callee"));
   return /\bhelper->arg_types\s*\[/.test(resolver) &&
@@ -472,6 +507,16 @@ function checkerUsesSharedStdlibFallibility(text) {
     /\bz_std_helper_error_name\s*\(/.test(resolver) &&
     !/\bis_builtin_fallible_call\b/.test(code) &&
     !/\bbuiltin_fallible_return_type\b/.test(code);
+}
+
+function checkerUsesSharedStdlibHelperClassification(text) {
+  const knownCall = cTextWithoutComments(cBlock(text, "static bool check_stdlib_known_call_expected"));
+  const memGetProvenance = cTextWithoutComments(cBlock(text, "static bool std_mem_get_value_provenance"));
+  return /\bz_std_helper_kind\s*\(/.test(knownCall) &&
+    /\bswitch\s*\(\s*kind\s*\)/.test(knownCall) &&
+    !/\bstrcmp\s*\(/.test(knownCall) &&
+    /\bz_std_helper_kind\s*\(/.test(memGetProvenance) &&
+    !/\bstrcmp\s*\(/.test(memGetProvenance);
 }
 
 function mainUsesSharedStdlibFallibility(text) {
@@ -700,6 +745,18 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
     violations.push({
       kind: "stdlib-shared-fallibility-lookup",
       sharedFallibilityLookup: stdlib.sharedFallibilityLookup,
+    });
+  }
+  if (!stdlib.sharedHelperClassification.checker) {
+    violations.push({
+      kind: "stdlib-shared-helper-classification",
+      sharedHelperClassification: stdlib.sharedHelperClassification,
+    });
+  }
+  if (stdlib.specializedHelperKindMismatches.length > 0) {
+    violations.push({
+      kind: "stdlib-specialized-helper-kind-mismatch",
+      mismatches: stdlib.specializedHelperKindMismatches,
     });
   }
   if (!backendFormats.directTarget.ruleMatrix ||
@@ -949,6 +1006,7 @@ const stdlib = {
   duplicateCheckerArgCounts: checkerArgCountInfo.duplicates,
   duplicateCheckerArgTypes: checkerArgTypeInfo.duplicates,
   duplicateStdHelperErrors: stdHelperErrorInfo.duplicates,
+  specializedHelperKindMismatches: stdHelperKindMismatches(stdSig),
   returnNamesMissingFromMainHelpers: missingFrom(checkerReturnNames, mainHelperNames),
   checkerReturnsMissingFromMainHelpers: missingFrom(checkerReturnNames, mainHelperNames),
   mainHelpersMissingFromCheckerReturns: missingFrom(mainHelperNames, checkerReturnNames),
@@ -970,6 +1028,9 @@ const stdlib = {
   sharedFallibilityLookup: {
     checker: checkerUsesSharedStdlibFallibility(checker),
     graph: mainUsesSharedStdlibFallibility(main),
+  },
+  sharedHelperClassification: {
+    checker: checkerUsesSharedStdlibHelperClassification(checker),
   },
 };
 const elfFormatSource = texts.get("native/zero-c/src/elf_format.c") ?? "";

@@ -339,6 +339,8 @@ assertIncludes("shared stdlib error facts", stdSig, "Z_STD_HELPER_MAX_ERRORS");
 assertIncludes("shared stdlib error facts", stdSig, "error_names");
 assertIncludes("shared stdlib error facts", stdSig, "z_std_helper_error_name");
 assertIncludes("shared stdlib error facts", stdSig, "z_std_helper_error_set_text");
+assertIncludes("shared stdlib helper classification", stdSig, "ZStdHelperKind");
+assertIncludes("shared stdlib helper classification", stdSig, "z_std_helper_kind");
 assertNotIncludes("shared stdlib fallibility facts", checker, "is_builtin_fallible_call");
 assertNotIncludes("shared stdlib fallibility facts", checker, "builtin_fallible_return_type");
 
@@ -458,8 +460,11 @@ assertIncludes("stdlib table call checking argument facts", stdlibTableDispatchB
 
 const stdlibKnownCallBody = sliceBetween(checker, "static bool check_stdlib_known_call_expected", "static bool check_stdlib_call_expected");
 assertIncludes("stdlib known call checking argument facts", stdlibKnownCallBody, "ZCallResolution *resolution");
+assertIncludes("stdlib known call helper classification", stdlibKnownCallBody, "z_std_helper_kind");
+assertIncludes("stdlib known call helper classification", stdlibKnownCallBody, "switch (kind)");
 assertIncludes("stdlib known call checking argument facts", stdlibKnownCallBody, "check_stdlib_mem_get_call_expected");
 assertIncludes("stdlib known call checking argument facts", stdlibKnownCallBody, "check_stdlib_table_call_expected");
+assertNotIncludes("stdlib known call helper classification", stdlibKnownCallBody, "strcmp(");
 
 const choiceCallBody = sliceBetween(checker, "static bool check_choice_constructor_call_expected", "static bool check_shape_namespace_call_expected");
 assertIncludes("choice call checking argument facts", choiceCallBody, "resolve_choice_constructor_call");
@@ -497,10 +502,12 @@ assertIncludes("call expression checking dispatch", callExprBody, "check_receive
 assertIncludes("call expression checking dispatch", callExprBody, "check_constrained_interface_call_expected");
 assertIncludes("call expression checking dispatch", callExprBody, "check_named_function_call_expected");
 assertIncludes("call expression checking dispatch", callExprBody, "check_stdlib_call_expected");
+assertBefore("stdlib call resolution before fallback argument checks", callExprBody, "check_stdlib_call_expected", "for (size_t i = 0; i < expr->args.len; i++)");
 
 const stdlibCallBody = sliceBetween(checker, "static bool check_stdlib_call_expected", "static bool check_choice_constructor_call_expected");
 assertIncludes("stdlib call checking dispatch", stdlibCallBody, "resolve_stdlib_call");
 assertIncludes("stdlib call checking dispatch", stdlibCallBody, "check_stdlib_known_call_expected");
+assertIncludes("stdlib call checking fallibility", stdlibCallBody, "check_stdlib_call_fallibility_expected");
 assertIncludes("stdlib call checking dispatch", stdlibCallBody, "z_call_resolution_free");
 assertIncludes("stdlib call checking dispatch", stdlibCallBody, "z_call_resolution_expected_arg_count");
 assertNotIncludes("stdlib call checking dispatch", stdlibCallBody, "std_call_arg_count");
@@ -518,6 +525,7 @@ assertNotIncludes("stdlib call resolver facts", stdlibResolverBody, "std_call_ar
 const callFunctionContextBody = sliceBetween(checker, "static const Function *resolve_call_function_in_context", "static bool expr_call_has_error_flow");
 assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_named_function_call");
 assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_shape_namespace_call");
+assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_concrete_constrained_shape_call");
 assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_constrained_interface_call");
 assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_receiver_shape_call");
 assertNotIncludes("fallible call function context resolver", callFunctionContextBody, "find_shape_method_decl");
@@ -536,7 +544,7 @@ assertIncludes("fallible function body context", functionErrorFlowBody, "fun_ctx
 
 const uncheckedFallibleCallBody = sliceBetween(checker, "static bool check_unchecked_fallible_call_expected", "static bool check_call_expr_expected");
 assertIncludes("unchecked fallible call resolver", uncheckedFallibleCallBody, "fallible_callee_in_context");
-assertIncludes("unchecked fallible call resolver", uncheckedFallibleCallBody, "resolve_stdlib_fallible_call");
+assertNotIncludes("unchecked fallible call resolver", uncheckedFallibleCallBody, "resolve_stdlib_fallible_call");
 assertNotIncludes("unchecked fallible call resolver", uncheckedFallibleCallBody, "fallible_callee(ctx");
 
 const callCalleeBody = sliceBetween(checker, "static bool check_call_callee", "static bool build_named_call_bindings_expected");
@@ -563,9 +571,10 @@ assertIncludes("checked call storage effects", checkedCallBody, "apply_provenanc
 
 const stdMemGetProvenanceBody = sliceBetween(checker, "static bool std_mem_get_value_provenance", "static bool value_provenance_add_actual_place");
 assertIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "resolve_stdlib_call");
-assertIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "resolution.std_helper");
+assertIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "z_std_helper_kind");
 assertIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "z_call_resolution_add_arg");
 assertNotIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "member_name_buf");
+assertNotIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "strcmp(");
 
 const summaryBody = sliceBetween(checker, "static bool function_provenance_summary", "static bool function_return_value_provenance");
 assertIncludes("function provenance summary", summaryBody, "collect_return_value_provenance_from_stmt_vec");

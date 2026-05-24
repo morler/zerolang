@@ -1528,6 +1528,7 @@ static bool resolve_named_function_call(const Program *program, const Expr *call
 }
 
 static bool resolve_shape_namespace_call(const Program *program, const Expr *call, ZCallResolution *out);
+static bool resolve_concrete_constrained_shape_call(const CheckContext *ctx, const Program *program, const Function *context_fun, GenericBinding *bindings, size_t binding_len, const Expr *call, ZCallResolution *out);
 static bool resolve_constrained_interface_call(const Program *program, const Function *context_fun, const Expr *call, ZCallResolution *out);
 static bool resolve_receiver_shape_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *receiver_type_hint, ZCallResolution *out);
 
@@ -2971,6 +2972,7 @@ static const Function *resolve_call_function_in_context(CheckContext *ctx, const
   } else if (expr->left->kind == EXPR_MEMBER) {
     ZCallResolution resolution = {0};
     if (resolve_shape_namespace_call(program, expr, &resolution) ||
+        resolve_concrete_constrained_shape_call(ctx, program, context_fun, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, expr, &resolution) ||
         resolve_constrained_interface_call(program, context_fun, expr, &resolution)) {
       fun = resolution.callee;
       z_call_resolution_free(&resolution);
@@ -5590,18 +5592,18 @@ static bool check_stdlib_fs_read_call_expected(CheckContext *ctx, const Program 
   return true;
 }
 
-static bool check_stdlib_fs_read_all_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name) {
+static bool check_stdlib_fs_read_all_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name, ZStdHelperKind kind) {
   if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, "std.fs.readAll", "pass an explicit allocator; no global filesystem allocator is available", "store the fixed buffer allocator in a mut binding before reading")) return false;
   if (!check_stdlib_table_arg_range_expected(ctx, program, expr, scope, diag, name, 1, false, resolution)) return false;
-  const char *return_type = strcmp(name, "std.fs.readAllOrRaise") == 0 ? "owned<ByteBuf>" : "Maybe<owned<ByteBuf>>";
+  const char *return_type = kind == Z_STD_HELPER_KIND_FS_READ_ALL_OR_RAISE ? "owned<ByteBuf>" : "Maybe<owned<ByteBuf>>";
   set_expr_resolved_type(expr, return_type);
   z_call_resolution_set_return_type(resolution, return_type);
   return true;
 }
 
-static bool check_stdlib_json_parse_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name) {
+static bool check_stdlib_json_parse_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name, ZStdHelperKind kind) {
   if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, name, "pass an explicit allocator; JSON parsing does not use a global allocator", "store the fixed buffer allocator in a mut binding before parsing JSON")) return false;
-  const char *expected = strcmp(name, "std.json.parseBytes") == 0 ? "Span<u8>" : "String";
+  const char *expected = kind == Z_STD_HELPER_KIND_JSON_PARSE_BYTES ? "Span<u8>" : "String";
   if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, expected)) return false;
   const char *actual = expr_type(ctx, program, expr->args.items[1], scope);
   record_stdlib_arg_fact(resolution, 1, expr->args.items[1], expected, actual);
@@ -5620,16 +5622,40 @@ static bool check_stdlib_table_call_expected(CheckContext *ctx, const Program *p
   return true;
 }
 
-static bool check_stdlib_known_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name) {
-  if (strcmp(name, "std.mem.len") == 0) return check_stdlib_mem_len_call_expected(ctx, program, expr, scope, diag, resolution);
-  if (strcmp(name, "std.mem.get") == 0) return check_stdlib_mem_get_call_expected(ctx, program, expr, scope, diag, resolution);
-  if (strcmp(name, "std.mem.eqlBytes") == 0) return check_stdlib_mem_eql_bytes_call_expected(ctx, program, expr, scope, diag, resolution);
-  if (strcmp(name, "std.mem.allocBytes") == 0) return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<MutSpan<u8>>", "allocation length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating");
-  if (strcmp(name, "std.mem.byteBuf") == 0) return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<owned<ByteBuf>>", "ByteBuf length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating a ByteBuf");
-  if (strcmp(name, "std.fs.read") == 0) return check_stdlib_fs_read_call_expected(ctx, program, expr, scope, diag, resolution);
-  if (strcmp(name, "std.fs.readAll") == 0 || strcmp(name, "std.fs.readAllOrRaise") == 0) return check_stdlib_fs_read_all_call_expected(ctx, program, expr, scope, diag, resolution, name);
-  if (strcmp(name, "std.json.parse") == 0 || strcmp(name, "std.json.parseBytes") == 0) return check_stdlib_json_parse_call_expected(ctx, program, expr, scope, diag, resolution, name);
-  return check_stdlib_table_call_expected(ctx, program, expr, scope, diag, resolution, name);
+static bool check_stdlib_known_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *name = resolution && resolution->callee_name ? resolution->callee_name : "std helper";
+  ZStdHelperKind kind = z_std_helper_kind(resolution ? resolution->std_helper : NULL);
+  switch (kind) {
+    case Z_STD_HELPER_KIND_MEM_LEN:
+      return check_stdlib_mem_len_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_MEM_GET:
+      return check_stdlib_mem_get_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_MEM_EQL_BYTES:
+      return check_stdlib_mem_eql_bytes_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_MEM_ALLOC_BYTES:
+      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<MutSpan<u8>>", "allocation length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating");
+    case Z_STD_HELPER_KIND_MEM_BYTE_BUF:
+      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<owned<ByteBuf>>", "ByteBuf length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating a ByteBuf");
+    case Z_STD_HELPER_KIND_FS_READ:
+      return check_stdlib_fs_read_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_FS_READ_ALL:
+    case Z_STD_HELPER_KIND_FS_READ_ALL_OR_RAISE:
+      return check_stdlib_fs_read_all_call_expected(ctx, program, expr, scope, diag, resolution, name, kind);
+    case Z_STD_HELPER_KIND_JSON_PARSE:
+    case Z_STD_HELPER_KIND_JSON_PARSE_BYTES:
+      return check_stdlib_json_parse_call_expected(ctx, program, expr, scope, diag, resolution, name, kind);
+    case Z_STD_HELPER_KIND_TABLE:
+    case Z_STD_HELPER_KIND_UNKNOWN:
+    default:
+      return check_stdlib_table_call_expected(ctx, program, expr, scope, diag, resolution, name);
+  }
+}
+
+static bool check_stdlib_call_fallibility_expected(CheckContext *ctx, const Expr *expr, ZDiag *diag, const ZCallResolution *resolution) {
+  if (!resolution || !resolution->fallible || (ctx && ctx->allow_fallible_call > 0)) return true;
+  char actual[160];
+  snprintf(actual, sizeof(actual), "call to '%s'", resolution->callee_name ? resolution->callee_name : "std fallible helper");
+  return set_diag_detail(diag, 1003, "fallible function call must be checked", expr->line, expr->column, "check fallible_call ...", actual, "prefix the call with check in a function marked with `!`");
 }
 
 static bool check_stdlib_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, bool *handled) {
@@ -5662,7 +5688,11 @@ static bool check_stdlib_call_expected(CheckContext *ctx, const Program *program
     z_call_resolution_free(&std_resolution);
     return set_diag_detail(diag, 3011, message, expr->line, expr->column, "matching std helper signature", "wrong argument count", "update the std helper call");
   }
-  bool ok = check_stdlib_known_call_expected(ctx, program, expr, scope, diag, &std_resolution, std_name);
+  if (!check_stdlib_call_fallibility_expected(ctx, expr, diag, &std_resolution)) {
+    z_call_resolution_free(&std_resolution);
+    return false;
+  }
+  bool ok = check_stdlib_known_call_expected(ctx, program, expr, scope, diag, &std_resolution);
   z_call_resolution_free(&std_resolution);
   return ok;
 }
@@ -5968,15 +5998,11 @@ static bool check_world_stream_write_call_expected(CheckContext *ctx, const Prog
 static bool check_unchecked_fallible_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   diag = check_context_diag(ctx, diag);
   const Function *fun = fallible_callee_in_context(ctx, program, ctx ? ctx->function : NULL, scope, expr);
-  ZCallResolution stdlib_resolution = {0};
-  bool stdlib_fallible = resolve_stdlib_fallible_call(expr, &stdlib_resolution);
-  if ((fun || stdlib_fallible) && (!ctx || ctx->allow_fallible_call == 0)) {
+  if (fun && (!ctx || ctx->allow_fallible_call == 0)) {
     char actual[160];
-    snprintf(actual, sizeof(actual), "call to '%s'", fun ? fun->name : (stdlib_resolution.callee_name ? stdlib_resolution.callee_name : "std fallible helper"));
-    z_call_resolution_free(&stdlib_resolution);
+    snprintf(actual, sizeof(actual), "call to '%s'", fun->name);
     return set_diag_detail(diag, 1003, "fallible function call must be checked", expr->line, expr->column, "check fallible_call ...", actual, "prefix the call with check in a function marked with `!`");
   }
-  z_call_resolution_free(&stdlib_resolution);
   return true;
 }
 
@@ -6008,6 +6034,9 @@ static bool check_call_expr_expected(CheckContext *ctx, const Program *program, 
     if (!check_constrained_interface_call_expected(ctx, program, expr, scope, diag, expected, &constrained_interface_call_handled)) return false;
     if (constrained_interface_call_handled) return true;
   }
+  bool std_call_handled = false;
+  if (!check_stdlib_call_expected(ctx, program, expr, scope, diag, &std_call_handled)) return false;
+  if (std_call_handled) return true;
   if (!check_call_callee(ctx, program, expr, scope, diag)) return false;
   bool named_call_handled = false;
   if (!check_named_function_call_expected(ctx, program, expr, scope, diag, expected, &named_call_handled)) return false;
@@ -6019,9 +6048,6 @@ static bool check_call_expr_expected(CheckContext *ctx, const Program *program, 
   if (!check_world_stream_write_call_expected(ctx, program, expr, scope, diag, &world_stream_write_handled)) return false;
   if (world_stream_write_handled) return true;
   if (!check_unchecked_fallible_call_expected(ctx, program, expr, scope, diag)) return false;
-  bool std_call_handled = false;
-  if (!check_stdlib_call_expected(ctx, program, expr, scope, diag, &std_call_handled)) return false;
-  if (std_call_handled) return true;
   if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
   return true;
 }
@@ -7114,7 +7140,7 @@ static bool std_mem_get_value_provenance(CheckContext *ctx, const Program *progr
   ZCallResolution resolution = {0};
   if (!resolve_stdlib_call(expr, &resolution)) return false;
   bool added = false;
-  if (!resolution.std_helper || !resolution.std_helper->name || strcmp(resolution.std_helper->name, "std.mem.get") != 0) goto done;
+  if (z_std_helper_kind(resolution.std_helper) != Z_STD_HELPER_KIND_MEM_GET) goto done;
 
   const Expr *collection = expr->args.items[0];
   z_call_resolution_add_arg(&resolution, 0, collection, z_call_resolution_param_type(&resolution, 0), expr_type(ctx, program, collection, scope));
