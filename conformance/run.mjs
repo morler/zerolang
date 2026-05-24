@@ -929,11 +929,21 @@ await assertMachOObjectBuildabilityBlocked(
   "macho-open-byte-slice.o",
   /byte-view length/,
 );
-await assertMachOObjectBuildabilityBlocked(
+const machoBoolArraysBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "darwin-arm64",
   "conformance/native/pass/bool-arrays.0",
-  "macho-bool-arrays.o",
-  /fixed-array local/,
-);
+  "--out",
+  `${outDir}/macho-bool-arrays.o`,
+]);
+const machoBoolArraysBody = JSON.parse(machoBoolArraysBuild.stdout);
+assert.equal(machoBoolArraysBody.compiler, "zero-macho64");
+assert.equal(machoBoolArraysBody.generatedCBytes, 0);
+assert.equal(machoBoolArraysBody.objectBackend.objectEmission.path, "direct-macho64-object");
 
 const directCallArm64ObjReadiness = await execFileAsync(zero, [
   "check",

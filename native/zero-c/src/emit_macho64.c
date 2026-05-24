@@ -66,6 +66,14 @@ static bool macho_type_is_scalar64(IrTypeKind type) { return type == IR_TYPE_I64
 static bool macho_type_is_unsigned(IrTypeKind type) { return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_U32 || type == IR_TYPE_U64; }
 static bool macho_type_is_scalar(IrTypeKind type) { return macho_type_is_scalar32(type) || macho_type_is_scalar64(type); }
 
+static bool macho_is_main_function(const IrFunction *fun) { return fun && fun->is_exported && fun->name && strcmp(fun->name, "main") == 0; }
+
+static bool macho_function_propagates_to_process_exit(const IrFunction *fun) {
+  return fun && (fun->raises || (macho_is_main_function(fun) && fun->return_type == IR_TYPE_I32 && fun->value_return_type == IR_TYPE_VOID));
+}
+
+static unsigned macho_abi_slots_for_param(const IrLocal *local) { return local && local->type == IR_TYPE_BYTE_VIEW ? 2u : 1u; }
+
 static void macho_emit_cast_normalize_reg(ZBuf *text, unsigned reg, IrTypeKind source, IrTypeKind target) {
   switch (target) {
     case IR_TYPE_BOOL:
@@ -189,6 +197,15 @@ static void macho_emit_u32_bounds_check(ZBuf *text, unsigned index_reg, unsigned
   z_aarch64_patch_cond19(text, ok_patch, text->len);
 }
 
+static void macho_emit_packed_error_reg(ZBuf *text, unsigned reg, unsigned code_value) {
+  z_aarch64_emit_movz_x(text, reg, ((uint64_t)code_value) << 32);
+}
+
+static void macho_emit_error_condition_reg(ZBuf *text, unsigned condition_reg, unsigned packed_reg) {
+  z_aarch64_emit_lsr_x_imm(text, condition_reg, packed_reg, 32);
+  z_aarch64_emit_cmp_x(text, condition_reg, 31);
+}
+
 static bool macho_const_u32_value(const IrValue *value, unsigned *out) {
   if (!value || value->kind != IR_VALUE_INT || value->int_value > UINT32_MAX) return false;
   if (out) *out = (unsigned)value->int_value;
@@ -294,6 +311,7 @@ static bool macho_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const
 static bool macho_emit_byte_view_len(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, MachOEmitContext *ctx, ZDiag *diag) { return macho_emit_byte_view_len_at(text, fun, view, reg, frame_size, 0, ctx, diag); }
 static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag);
 static bool macho_emit_value_to_reg(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, MachOEmitContext *ctx, ZDiag *diag) { return macho_emit_value_to_reg_at(text, fun, value, reg, frame_size, 0, ctx, diag); }
+static void macho_emit_epilogue(ZBuf *text, unsigned frame_size, bool restore_process_args);
 
 static bool macho_emit_json_parse_bytes_call_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
   if (!macho_emit_byte_view_ptr_at(text, fun, value->left, 0, frame_size, scratch_slot, ctx, diag)) return false;
@@ -385,18 +403,50 @@ static bool macho_emit_byte_view_ptr_at(ZBuf *text, const IrFunction *fun, const
 }
 
 static bool macho_emit_call_to_reg(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
-  if (value->arg_len > 8) return macho_diag_at(diag, "direct AArch64 Mach-O call supports at most eight arguments", value->line, value->column, "too many arguments");
-  if (scratch_slot + value->arg_len >= MACHO_SCRATCH_SLOT_COUNT) {
+  const IrFunction *callee = ctx && ctx->program && value->callee_index < ctx->program->function_len ? &ctx->program->functions[value->callee_index] : NULL;
+  if (!callee) return macho_diag_at(diag, "direct AArch64 Mach-O call target is unavailable", value->line, value->column, "invalid callee");
+  unsigned abi_slots = 0;
+  for (size_t i = 0; i < value->arg_len; i++) {
+    if (i >= callee->param_count) return macho_diag_at(diag, "direct AArch64 Mach-O call parameter metadata is unavailable", value->line, value->column, "invalid callee parameter");
+    unsigned slots = macho_abi_slots_for_param(&callee->locals[i]);
+    if (abi_slots + slots > 8) return macho_diag_at(diag, "direct AArch64 Mach-O call supports at most eight ABI argument slots", value->line, value->column, "too many arguments");
+    abi_slots += slots;
+  }
+  if (scratch_slot + abi_slots >= MACHO_SCRATCH_SLOT_COUNT) {
     return macho_diag_at(diag, "direct AArch64 Mach-O call argument nesting exceeds scratch spill capacity", value->line, value->column, "too many nested call arguments");
   }
+  unsigned nested_slot = scratch_slot + abi_slots;
+  unsigned arg_slot = scratch_slot;
   for (size_t i = 0; i < value->arg_len; i++) {
     const IrValue *arg = value->args[i];
-    if (!macho_emit_value_to_reg_at(text, fun, arg, 8, frame_size, scratch_slot + (unsigned)value->arg_len, ctx, diag)) return false;
-    if (!macho_emit_store_scratch(text, 8, arg ? arg->type : IR_TYPE_I32, scratch_slot + (unsigned)i, arg, diag)) return false;
+    const IrLocal *param = &callee->locals[i];
+    if (param->type == IR_TYPE_BYTE_VIEW) {
+      if (!macho_emit_byte_view_ptr_at(text, fun, arg, 8, frame_size, nested_slot, ctx, diag)) return false;
+      if (!macho_emit_store_scratch(text, 8, IR_TYPE_U64, arg_slot, arg, diag)) return false;
+      if (!macho_emit_byte_view_len_at(text, fun, arg, 8, frame_size, nested_slot, ctx, diag)) return false;
+      if (!macho_emit_store_scratch(text, 8, IR_TYPE_U32, arg_slot + 1, arg, diag)) return false;
+      arg_slot += 2;
+      continue;
+    }
+    if (!macho_emit_value_to_reg_at(text, fun, arg, 8, frame_size, nested_slot, ctx, diag)) return false;
+    if (!macho_emit_store_scratch(text, 8, arg ? arg->type : IR_TYPE_I32, arg_slot, arg, diag)) return false;
+    arg_slot++;
   }
+  arg_slot = scratch_slot;
+  unsigned abi_slot = 0;
   for (size_t i = 0; i < value->arg_len; i++) {
     const IrValue *arg = value->args[i];
-    if (!macho_emit_load_scratch(text, (unsigned)i, arg ? arg->type : IR_TYPE_I32, scratch_slot + (unsigned)i, arg, diag)) return false;
+    const IrLocal *param = &callee->locals[i];
+    if (param->type == IR_TYPE_BYTE_VIEW) {
+      if (!macho_emit_load_scratch(text, abi_slot, IR_TYPE_U64, arg_slot, arg, diag)) return false;
+      if (!macho_emit_load_scratch(text, abi_slot + 1, IR_TYPE_U32, arg_slot + 1, arg, diag)) return false;
+      arg_slot += 2;
+      abi_slot += 2;
+      continue;
+    }
+    if (!macho_emit_load_scratch(text, abi_slot, arg ? arg->type : IR_TYPE_I32, arg_slot, arg, diag)) return false;
+    arg_slot++;
+    abi_slot++;
   }
   size_t patch = z_aarch64_emit_bl_placeholder(text);
   if (!z_macho_record_call_patch(ctx, patch, value->callee_index, value, diag)) return false;
@@ -501,7 +551,8 @@ static bool macho_emit_index_load_to_reg_at(ZBuf *text, const IrFunction *fun, c
   if (value->array_index >= fun->local_len) return macho_diag_at(diag, "direct AArch64 Mach-O indexed load array is out of range", value->line, value->column, "invalid array local");
   const IrLocal *local = &fun->locals[value->array_index];
   unsigned const_index = 0;
-  if (local->is_array && local->element_type != IR_TYPE_U8 && macho_const_u32_value(value->index, &const_index) && const_index < local->array_len) {
+  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE) &&
+      macho_const_u32_value(value->index, &const_index) && const_index < local->array_len) {
     macho_emit_load_local_w(text, fun, reg, value->array_index, const_index * 4u, frame_size);
     return true;
   }
@@ -516,7 +567,7 @@ static bool macho_emit_index_load_to_reg_at(ZBuf *text, const IrFunction *fun, c
     z_aarch64_emit_load_w_imm(text, reg, 9, 0);
     return true;
   }
-  if (!local->is_array || local->element_type != IR_TYPE_U8) return macho_diag_at(diag, "direct AArch64 Mach-O indexed load requires [N]u8 or integer arrays", value->line, value->column, "unsupported array local");
+  if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return macho_diag_at(diag, "direct AArch64 Mach-O indexed load requires [N]u8, [N]Bool, or integer arrays", value->line, value->column, "unsupported array local");
   if (!value->index || !macho_emit_value_to_reg_at(text, fun, value->index, 8, frame_size, scratch_slot, ctx, diag)) return false;
   if (!macho_emit_store_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
   z_aarch64_emit_movz_w(text, 9, local->array_len);
@@ -607,6 +658,46 @@ static bool macho_emit_vec_push_to_reg_at(ZBuf *text, const IrFunction *fun, con
   return true;
 }
 
+static bool macho_emit_check_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || value->left->type != IR_TYPE_I64) return macho_diag_at(diag, "direct AArch64 Mach-O check requires a packed fallible call result", value->line, value->column, "non-fallible value");
+  if (!macho_emit_value_to_reg_at(text, fun, value->left, 0, frame_size, scratch_slot, ctx, diag)) return false;
+  macho_emit_error_condition_reg(text, 8, 0);
+  size_t ok_patch = z_aarch64_emit_b_cond_placeholder(text, 0);
+  bool restore_process_args = ctx && ctx->seed_main_process_args && macho_is_main_function(fun);
+  if (macho_function_propagates_to_process_exit(fun)) {
+    macho_emit_epilogue(text, frame_size, restore_process_args);
+  } else {
+    z_aarch64_emit_movz_w(text, 0, 1);
+    macho_emit_epilogue(text, frame_size, restore_process_args);
+  }
+  z_aarch64_patch_cond19(text, ok_patch, text->len);
+  if (reg != 0) {
+    if (macho_type_is_scalar64(value->type)) z_aarch64_emit_mov_x(text, reg, 0);
+    else z_aarch64_emit_mov_w(text, reg, 0);
+  } else if (!macho_type_is_scalar64(value->type)) {
+    z_aarch64_emit_mov_w(text, 0, 0);
+  }
+  return true;
+}
+
+static bool macho_emit_rescue_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right || value->left->type != IR_TYPE_I64) return macho_diag_at(diag, "direct AArch64 Mach-O rescue requires a packed fallible call and fallback", value->line, value->column, "unsupported rescue");
+  if (!macho_emit_value_to_reg_at(text, fun, value->left, 0, frame_size, scratch_slot, ctx, diag)) return false;
+  macho_emit_error_condition_reg(text, 8, 0);
+  size_t fallback_patch = z_aarch64_emit_b_cond_placeholder(text, 1);
+  if (reg != 0) {
+    if (macho_type_is_scalar64(value->type)) z_aarch64_emit_mov_x(text, reg, 0);
+    else z_aarch64_emit_mov_w(text, reg, 0);
+  } else if (!macho_type_is_scalar64(value->type)) {
+    z_aarch64_emit_mov_w(text, 0, 0);
+  }
+  size_t end_patch = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_cond19(text, fallback_patch, text->len);
+  if (!macho_emit_value_to_reg_at(text, fun, value->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
+  z_aarch64_patch_branch26(text, end_patch, text->len);
+  return true;
+}
+
 static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
   if (!value) return macho_diag_at(diag, "direct AArch64 Mach-O expression is missing", 1, 1, "missing expression");
   switch (value->kind) {
@@ -679,6 +770,10 @@ static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const 
       return true;
     case IR_VALUE_VEC_PUSH:
       return macho_emit_vec_push_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_CHECK:
+      return macho_emit_check_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_RESCUE:
+      return macho_emit_rescue_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_ARGS_LEN:
       z_aarch64_emit_mov_w(text, reg, 20);
       return true;
@@ -938,7 +1033,8 @@ static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *i
     if (instr->array_index >= fun->local_len) return macho_diag_at(diag, "direct AArch64 Mach-O indexed store array is out of range", instr->line, instr->column, "invalid array local");
     const IrLocal *local = &fun->locals[instr->array_index];
     unsigned const_index = 0;
-    if (local->is_array && local->element_type != IR_TYPE_U8 && macho_const_u32_value(instr->index, &const_index) && const_index < local->array_len) {
+    if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE) &&
+        macho_const_u32_value(instr->index, &const_index) && const_index < local->array_len) {
       if (!macho_emit_value_to_reg(text, fun, instr->value, 10, frame_size, ctx, diag)) return false;
       macho_emit_store_local_w(text, fun, 10, instr->array_index, const_index * 4u, frame_size);
       return true;
@@ -953,7 +1049,7 @@ static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *i
       z_aarch64_emit_store_w_imm(text, 10, 9, 0);
       return true;
     }
-    if (!local->is_array || local->element_type != IR_TYPE_U8) return macho_diag_at(diag, "direct AArch64 Mach-O indexed store requires [N]u8 or integer arrays", instr->line, instr->column, "unsupported array local");
+    if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return macho_diag_at(diag, "direct AArch64 Mach-O indexed store requires [N]u8, [N]Bool, or integer arrays", instr->line, instr->column, "unsupported array local");
     if (!macho_emit_value_to_reg(text, fun, instr->value, 10, frame_size, ctx, diag)) return false;
     if (!instr->index || !macho_emit_value_to_reg(text, fun, instr->index, 8, frame_size, ctx, diag)) return false;
     z_aarch64_emit_movz_w(text, 9, local->array_len);
@@ -968,6 +1064,13 @@ static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *i
   }
   if (instr->kind == IR_INSTR_RETURN) {
     if (instr->value && !macho_emit_value_to_reg(text, fun, instr->value, 0, frame_size, ctx, diag)) return false;
+    if (fun->raises && !instr->value) z_aarch64_emit_movz_x(text, 0, 0);
+    macho_emit_epilogue(text, frame_size, restore_process_args);
+    return true;
+  }
+  if (instr->kind == IR_INSTR_RAISE) {
+    if (!macho_function_propagates_to_process_exit(fun)) return macho_diag_at(diag, "direct AArch64 Mach-O raise requires a fallible function context", instr->line, instr->column, "non-fallible context");
+    macho_emit_packed_error_reg(text, 0, instr->error_code ? instr->error_code : IR_ERROR_UNKNOWN);
     macho_emit_epilogue(text, frame_size, restore_process_args);
     return true;
   }
@@ -1010,18 +1113,20 @@ static bool macho_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr *
 static bool macho_validate_function(const IrFunction *fun, ZDiag *diag) {
   uint32_t ignored = 0;
   if (macho_is_literal_return_function(fun, &ignored, NULL)) return true;
-  if (fun->param_count > 8) return macho_diag_at(diag, "direct AArch64 Mach-O object backend supports at most eight parameters", fun->line, fun->column, fun->name);
+  unsigned abi_slots = 0;
+  for (size_t i = 0; i < fun->param_count; i++) {
+    abi_slots += macho_abi_slots_for_param(&fun->locals[i]);
+    if (abi_slots > 8) return macho_diag_at(diag, "direct AArch64 Mach-O object backend supports at most eight ABI argument slots", fun->line, fun->column, fun->name);
+  }
   if (fun->return_type != IR_TYPE_VOID && !macho_type_is_scalar(fun->return_type)) {
     return macho_diag_at(diag, "direct AArch64 Mach-O object backend currently supports only Void and primitive integer returns", fun->line, fun->column, fun->name);
   }
   for (size_t i = 0; i < fun->local_len; i++) {
     if (fun->locals[i].type == IR_TYPE_BYTE_VIEW) {
-      if (fun->locals[i].is_param) {
-        return macho_diag_at(diag, "direct AArch64 Mach-O object backend does not yet support byte-view parameters", fun->locals[i].line, fun->locals[i].column, fun->locals[i].name);
-      }
       continue;
     }
-    if (fun->locals[i].is_array && (fun->locals[i].element_type == IR_TYPE_U8 || fun->locals[i].element_type == IR_TYPE_U32 || fun->locals[i].element_type == IR_TYPE_I32 || fun->locals[i].element_type == IR_TYPE_USIZE)) continue;
+    if (fun->locals[i].is_array && (fun->locals[i].element_type == IR_TYPE_U8 || fun->locals[i].element_type == IR_TYPE_BOOL ||
+                                    fun->locals[i].element_type == IR_TYPE_U32 || fun->locals[i].element_type == IR_TYPE_I32 || fun->locals[i].element_type == IR_TYPE_USIZE)) continue;
     if (fun->locals[i].is_record) continue;
     if (fun->locals[i].type == IR_TYPE_ALLOC || fun->locals[i].type == IR_TYPE_MAYBE_BYTE_VIEW || fun->locals[i].type == IR_TYPE_MAYBE_SCALAR) continue;
     if (fun->locals[i].type == IR_TYPE_VEC) continue;
@@ -1040,7 +1145,7 @@ static bool macho_emit_function_text(ZBuf *text, const IrFunction *fun, MachOEmi
   }
 
   unsigned frame_size = macho_frame_size(fun);
-  bool seed_process_args = ctx && ctx->seed_main_process_args && fun->is_exported && fun->name && strcmp(fun->name, "main") == 0;
+  bool seed_process_args = ctx && ctx->seed_main_process_args && macho_is_main_function(fun);
   if (seed_process_args) z_aarch64_emit_stp_x20_x21_sp_pre16(text);
   z_aarch64_emit_stp_x29_x30_sp_pre16(text);
   z_aarch64_emit_mov_x29_sp(text);
@@ -1049,12 +1154,23 @@ static bool macho_emit_function_text(ZBuf *text, const IrFunction *fun, MachOEmi
     z_aarch64_emit_mov_x(text, 20, 0);
     z_aarch64_emit_mov_x(text, 21, 1);
   }
+  unsigned abi_slot = 0;
   for (size_t i = 0; i < fun->param_count; i++) {
-    if (macho_type_is_scalar64(fun->locals[i].type)) macho_emit_store_local_x(text, fun, (unsigned)i, (unsigned)i, 0, frame_size);
-    else macho_emit_store_local_w(text, fun, (unsigned)i, (unsigned)i, 0, frame_size);
+    const IrLocal *local = &fun->locals[i];
+    unsigned slots = macho_abi_slots_for_param(local);
+    if (abi_slot + slots > 8) return macho_diag_at(diag, "direct AArch64 Mach-O function has too many ABI argument slots", fun->line, fun->column, fun->name);
+    if (local->type == IR_TYPE_BYTE_VIEW) {
+      macho_emit_store_local_x(text, fun, abi_slot, (unsigned)i, 0, frame_size);
+      macho_emit_store_local_w(text, fun, abi_slot + 1, (unsigned)i, 8, frame_size);
+    } else if (macho_type_is_scalar64(local->type)) {
+      macho_emit_store_local_x(text, fun, abi_slot, (unsigned)i, 0, frame_size);
+    } else {
+      macho_emit_store_local_w(text, fun, abi_slot, (unsigned)i, 0, frame_size);
+    }
+    abi_slot += slots;
   }
   if (!macho_emit_instrs(text, fun, fun->instrs, fun->instr_len, frame_size, seed_process_args, ctx, diag)) return false;
-  if (fun->instr_len == 0 || fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RETURN) macho_emit_epilogue(text, frame_size, seed_process_args);
+  if (fun->instr_len == 0 || (fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RETURN && fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RAISE)) macho_emit_epilogue(text, frame_size, seed_process_args);
   return true;
 }
 
@@ -1244,7 +1360,7 @@ static const IrFunction *macho_find_executable_main(const IrProgram *program, ZD
   const IrFunction *fun = NULL;
   unsigned index = 0;
   for (size_t i = 0; program && i < program->function_len; i++) {
-    if (program->functions[i].is_exported && strcmp(program->functions[i].name, "main") == 0) {
+    if (macho_is_main_function(&program->functions[i])) {
       if (fun) {
         macho_diag_at(diag, "direct AArch64 Mach-O executable backend requires exactly one exported main function", program->functions[i].line, program->functions[i].column, program->functions[i].name);
         return NULL;

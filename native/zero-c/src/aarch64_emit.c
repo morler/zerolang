@@ -202,6 +202,10 @@ void z_aarch64_emit_add_x_reg_lsl(ZBuf *text, unsigned dst, unsigned lhs, unsign
   z_aarch64_append_u32(text, 0x8b000000u | ((rhs & 31u) << 16) | ((shift & 0x3fu) << 10) | ((lhs & 31u) << 5) | (dst & 31u));
 }
 
+void z_aarch64_emit_lsr_x_imm(ZBuf *text, unsigned dst, unsigned src, unsigned shift) {
+  z_aarch64_append_u32(text, 0xd340fc00u | ((shift & 0x3fu) << 16) | ((src & 31u) << 5) | (dst & 31u));
+}
+
 void z_aarch64_emit_sub_w_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs) {
   z_aarch64_append_u32(text, 0x4b000000u | ((rhs & 31u) << 16) | ((lhs & 31u) << 5) | (dst & 31u));
 }

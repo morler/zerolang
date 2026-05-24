@@ -31,8 +31,8 @@ static bool build_value_supported(const ZBuildability *ctx, const IrValue *value
     case IR_VALUE_FS_FILE_LEN: case IR_VALUE_FS_MAKE_DIR: case IR_VALUE_FS_REMOVE_DIR: case IR_VALUE_FS_IS_DIR:
     case IR_VALUE_FS_DIR_ENTRY_COUNT: case IR_VALUE_FS_TEMP_NAME: case IR_VALUE_FS_ATOMIC_WRITE:
     case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_VIEW_EQ: case IR_VALUE_CRC32_BYTES:
-    case IR_VALUE_CHECK: case IR_VALUE_RESCUE:
       return ctx->backend == Z_DIRECT_BACKEND_ELF64;
+    case IR_VALUE_CHECK: case IR_VALUE_RESCUE: return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64;
     case IR_VALUE_MAYBE_VALUE:
       return ctx->backend == Z_DIRECT_BACKEND_ELF64 || (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && value->type == IR_TYPE_BYTE_VIEW);
     case IR_VALUE_JSON_PARSE_BYTES: case IR_VALUE_JSON_VALIDATE_BYTES: case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
@@ -91,12 +91,14 @@ static bool build_check_value(const ZBuildability *ctx, const IrFunction *fun, c
   }
   if (value->kind == IR_VALUE_CALL) {
     size_t max_args = ctx->backend == Z_DIRECT_BACKEND_COFF_X64 ? 4 : (ctx->backend == Z_DIRECT_BACKEND_ELF64 ? 6 : 8);
-    if (ctx->backend != Z_DIRECT_BACKEND_ELF_AARCH64 && value->arg_len > max_args) {
+    size_t abi_slots = 0;
+    for (size_t i = 0; i < value->arg_len; i++) abi_slots += value->args[i] && value->args[i]->type == IR_TYPE_BYTE_VIEW ? 2u : 1u;
+    if (ctx->backend != Z_DIRECT_BACKEND_ELF_AARCH64 && abi_slots > max_args) {
       char actual[80];
-      snprintf(actual, sizeof(actual), "%zu argument(s)", value->arg_len);
+      snprintf(actual, sizeof(actual), "%zu ABI argument slot(s)", abi_slots);
       return z_build_diag(ctx, diag, "direct backend buildability found a call with too many arguments", value->line, value->column, actual);
     }
-    if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && macho_scratch_slot + value->arg_len >= BUILD_MACHO_SCRATCH_SLOT_COUNT) {
+    if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && macho_scratch_slot + abi_slots >= BUILD_MACHO_SCRATCH_SLOT_COUNT) {
       return z_build_diag(ctx, diag, "direct AArch64 Mach-O call argument nesting exceeds scratch spill capacity", value->line, value->column, "too many nested call arguments");
     }
   }
@@ -112,9 +114,13 @@ static bool build_check_value(const ZBuildability *ctx, const IrFunction *fun, c
   if (value->index && !build_check_value(ctx, fun, value->index, false, macho_scratch_slot, diag)) return false;
   if (value->left && !skip_left && !build_check_value(ctx, fun, value->left, false, macho_scratch_slot, diag)) return false;
   if (value->right && !build_check_value(ctx, fun, value->right, false, right_slot, diag)) return false;
+  size_t arg_abi_slots = 0;
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && value->kind == IR_VALUE_CALL) {
+    for (size_t i = 0; i < value->arg_len; i++) arg_abi_slots += value->args[i] && value->args[i]->type == IR_TYPE_BYTE_VIEW ? 2u : 1u;
+  }
   for (size_t i = 0; i < value->arg_len; i++) {
     unsigned arg_slot = ctx->backend == Z_DIRECT_BACKEND_MACHO64 && value->kind == IR_VALUE_CALL
-                      ? macho_scratch_slot + (unsigned)value->arg_len
+                      ? macho_scratch_slot + (unsigned)arg_abi_slots
                       : macho_scratch_slot;
     if (!build_check_value(ctx, fun, value->args[i], false, arg_slot, diag)) return false;
   }
@@ -158,7 +164,7 @@ static bool build_check_instr(const ZBuildability *ctx, const IrFunction *fun, c
       if (!build_check_instrs(ctx, fun, instr->then_instrs, instr->then_len, diag)) return false;
       return build_check_instrs(ctx, fun, instr->else_instrs, instr->else_len, diag);
     case IR_INSTR_RAISE:
-      if (ctx->backend == Z_DIRECT_BACKEND_ELF64) return true;
+      if (ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64) return true;
       return z_build_diag(ctx, diag, "direct backend buildability does not support raise instructions for this emitter", instr->line, instr->column, "IR_INSTR_RAISE");
   }
   return z_build_diag(ctx, diag, "direct backend buildability does not support this instruction", instr->line, instr->column, "unsupported instruction");
@@ -188,12 +194,13 @@ static bool build_check_function_shape(const ZBuildability *ctx, const IrFunctio
   if (!return_ok) return z_build_diag(ctx, diag, "direct backend object buildability does not support this return type", fun->line, fun->column, z_build_type_name(fun->return_type));
   for (size_t i = 0; i < fun->local_len; i++) {
     const IrLocal *local = &fun->locals[i];
-    if (local->type == IR_TYPE_BYTE_VIEW && local->is_param && ctx->backend != Z_DIRECT_BACKEND_ELF64) return z_build_diag(ctx, diag, "direct backend object buildability does not support byte-view parameters", local->line, local->column, local->name);
+    if (local->type == IR_TYPE_BYTE_VIEW && local->is_param && ctx->backend != Z_DIRECT_BACKEND_ELF64 && ctx->backend != Z_DIRECT_BACKEND_MACHO64) return z_build_diag(ctx, diag, "direct backend object buildability does not support byte-view parameters", local->line, local->column, local->name);
     if (local->is_record || local->type == IR_TYPE_BYTE_VIEW || local->type == IR_TYPE_ALLOC || local->type == IR_TYPE_VEC || local->type == IR_TYPE_MAYBE_BYTE_VIEW) continue;
     if (ctx->backend != Z_DIRECT_BACKEND_COFF_X64 && local->type == IR_TYPE_MAYBE_SCALAR) continue;
     if (local->is_array) {
       bool array_ok = local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_U32 ||
-                      local->element_type == IR_TYPE_USIZE || (ctx->backend == Z_DIRECT_BACKEND_ELF64 && (local->element_type == IR_TYPE_BOOL || local->element_type == IR_TYPE_I64 || local->element_type == IR_TYPE_U64));
+                      local->element_type == IR_TYPE_USIZE || ((ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64) && local->element_type == IR_TYPE_BOOL) ||
+                      (ctx->backend == Z_DIRECT_BACKEND_ELF64 && (local->element_type == IR_TYPE_I64 || local->element_type == IR_TYPE_U64));
       if (!array_ok) return z_build_diag(ctx, diag, "direct backend object buildability does not support this fixed-array local", local->line, local->column, z_build_type_name(local->element_type));
       continue;
     }

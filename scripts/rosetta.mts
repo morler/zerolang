@@ -20,9 +20,29 @@ type RosettaManifest = {
 };
 
 const manifestPath = "benchmarks/rosetta/manifest.json";
-const outDir = ".zero/rosetta";
-const target = "linux-musl-x64";
-const runOutputs = process.platform === "linux" && process.arch === "x64";
+const hostTarget = process.platform === "darwin" && process.arch === "arm64" ? "darwin-arm64" : "linux-musl-x64";
+const target = readFlag("--target") ?? process.env.ZERO_ROSETTA_TARGET ?? hostTarget;
+const outDir = join(".zero/rosetta", target);
+const runOutputs = canRunTarget(target);
+
+function readFlag(name: string) {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return null;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) fail(`${name} requires a value`);
+  return value;
+}
+
+function canRunTarget(targetName: string) {
+  return (targetName === "linux-musl-x64" && process.platform === "linux" && process.arch === "x64") ||
+    (targetName === "darwin-arm64" && process.platform === "darwin" && process.arch === "arm64");
+}
+
+function expectedObjectEmissionPath(targetName: string) {
+  if (targetName === "linux-musl-x64") return "direct-elf64-exe";
+  if (targetName === "darwin-arm64") return "direct-macho64-exe";
+  fail(`unsupported Rosetta target: ${targetName}`);
+}
 
 function fail(message: string): never {
   console.error(message);
@@ -53,7 +73,7 @@ function readManifest(): RosettaManifest {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as RosettaManifest;
   if (manifest.schemaVersion !== 1) fail(`unsupported Rosetta manifest schema: ${manifest.schemaVersion}`);
   if (manifest.corpus !== "zero-rosetta") fail(`unexpected Rosetta corpus: ${manifest.corpus}`);
-  if (manifest.target !== target) fail(`unexpected Rosetta target: ${manifest.target}`);
+  if (typeof manifest.target !== "string" || manifest.target.length === 0) fail("Rosetta manifest target must be a string");
   if (!Array.isArray(manifest.cases)) fail("Rosetta manifest cases must be an array");
   if (manifest.taskCount !== manifest.cases.length) fail(`Rosetta manifest taskCount ${manifest.taskCount} does not match ${manifest.cases.length} cases`);
   return manifest;
@@ -80,15 +100,16 @@ function validateCases(cases: RosettaCase[]) {
 
 function buildCase(entry: RosettaCase) {
   const out = join(outDir, entry.slug);
-  const args = ["build", "--json", "--emit", "exe", "--backend", "zero-elf64", "--target", target, entry.source, "--out", out];
+  const args = ["build", "--json", "--emit", "exe", "--target", target, entry.source, "--out", out];
   const result = spawnSync("bin/zero", args, { encoding: "utf8", maxBuffer: 20_000_000 });
   if (result.status !== 0) return { ok: false, out, failure: commandFailure("bin/zero", args, result) };
   const body = JSON.parse(result.stdout);
   if (body.generatedCBytes !== 0) {
     return { ok: false, out, failure: { diagnostic: `expected generatedCBytes=0, got ${body.generatedCBytes}` } };
   }
-  if (body.objectBackend?.objectEmission?.path !== "direct-elf64-exe") {
-    return { ok: false, out, failure: { diagnostic: `expected direct-elf64-exe, got ${body.objectBackend?.objectEmission?.path ?? "<missing>"}` } };
+  const expectedPath = expectedObjectEmissionPath(target);
+  if (body.objectBackend?.objectEmission?.path !== expectedPath) {
+    return { ok: false, out, failure: { diagnostic: `expected ${expectedPath}, got ${body.objectBackend?.objectEmission?.path ?? "<missing>"}` } };
   }
   return { ok: true, out };
 }

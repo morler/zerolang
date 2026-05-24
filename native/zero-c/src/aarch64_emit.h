@@ -51,6 +51,7 @@ void z_aarch64_emit_store_b_imm(ZBuf *text, unsigned src, unsigned base, unsigne
 void z_aarch64_emit_add_w_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs);
 void z_aarch64_emit_add_x_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs);
 void z_aarch64_emit_add_x_reg_lsl(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs, unsigned shift);
+void z_aarch64_emit_lsr_x_imm(ZBuf *text, unsigned dst, unsigned src, unsigned shift);
 void z_aarch64_emit_sub_w_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs);
 void z_aarch64_emit_sub_x_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs);
 void z_aarch64_emit_mul_w_reg(ZBuf *text, unsigned dst, unsigned lhs, unsigned rhs);
