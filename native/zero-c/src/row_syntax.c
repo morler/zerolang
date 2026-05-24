@@ -12,6 +12,16 @@ typedef struct {
 } RowIndentStack;
 
 typedef struct {
+  const char *source;
+  ZRowTokenVec tokens;
+  RowIndentStack indents;
+  size_t offset;
+  int line;
+  int column;
+  bool at_line_start;
+} RowTokenizer;
+
+typedef struct {
   const ZRowTokenVec *tokens;
   size_t pos;
   size_t end;
@@ -334,182 +344,178 @@ static bool row_scan_char(const char *source, size_t *offset, int *column, ZRowT
   return true;
 }
 
+static void row_tokenizer_emit_newline(RowTokenizer *lexer, size_t width) {
+  row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_NEWLINE, z_strdup(""), lexer->line, lexer->column, lexer->offset, width));
+  lexer->offset += width;
+  lexer->line++;
+  lexer->column = 1;
+  lexer->at_line_start = true;
+}
+
+static void row_tokenizer_scan_comment(RowTokenizer *lexer, bool include_newline) {
+  size_t newline_width = 0;
+  size_t start = lexer->offset;
+  int start_column = lexer->column;
+  while (lexer->source[lexer->offset] && !row_newline_at(lexer->source, lexer->offset, &newline_width)) {
+    lexer->offset++;
+    lexer->column++;
+  }
+  row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_COMMENT, z_strndup(lexer->source + start, lexer->offset - start), lexer->line, start_column, start, lexer->offset - start));
+  if (include_newline && row_newline_at(lexer->source, lexer->offset, &newline_width)) row_tokenizer_emit_newline(lexer, newline_width);
+}
+
+static bool row_tokenizer_scan_line_start(RowTokenizer *lexer, ZDiag *diag, bool *consumed, bool *done) {
+  *consumed = false;
+  *done = false;
+  size_t indent = 0;
+  size_t indent_start = lexer->offset;
+
+  while (lexer->source[lexer->offset] == ' ' || lexer->source[lexer->offset] == '\t') {
+    if (lexer->source[lexer->offset] == '\t') {
+      row_diag(diag, lexer->line, lexer->column, 1, "tabs are not valid row indentation", "spaces", "use two spaces per indentation level");
+      return false;
+    }
+    lexer->offset++;
+    lexer->column++;
+    indent++;
+  }
+
+  size_t newline_width = 0;
+  if (row_newline_at(lexer->source, lexer->offset, &newline_width)) {
+    row_tokenizer_emit_newline(lexer, newline_width);
+    *consumed = true;
+    return true;
+  }
+  if (lexer->source[lexer->offset] == 0) {
+    *done = true;
+    return true;
+  }
+  if (indent % 2 != 0) {
+    row_diag(diag, lexer->line, 1, (int)(lexer->offset - indent_start), "row indentation must use two-space steps", "a multiple of two spaces", NULL);
+    return false;
+  }
+  if (lexer->source[lexer->offset] == '#') {
+    row_tokenizer_scan_comment(lexer, true);
+    *consumed = true;
+    return true;
+  }
+
+  size_t current_indent = lexer->indents.items[lexer->indents.len - 1];
+  if (indent > current_indent) {
+    if (indent != current_indent + 2) {
+      row_diag(diag, lexer->line, 1, (int)(lexer->offset - indent_start), "row indentation may only increase by one level", "two more spaces than the parent row", NULL);
+      return false;
+    }
+    row_push_indent(&lexer->indents, indent);
+    row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_INDENT, z_strdup(""), lexer->line, 1, indent_start, indent));
+  } else if (indent < current_indent) {
+    while (lexer->indents.len > 1 && indent < lexer->indents.items[lexer->indents.len - 1]) {
+      lexer->indents.len--;
+      row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_DEDENT, z_strdup(""), lexer->line, 1, indent_start, indent));
+    }
+    if (indent != lexer->indents.items[lexer->indents.len - 1]) {
+      row_diag(diag, lexer->line, 1, (int)(lexer->offset - indent_start), "row indentation does not match an open block", "an existing indentation level", NULL);
+      return false;
+    }
+  }
+  lexer->at_line_start = false;
+  return true;
+}
+
+static bool row_tokenizer_scan_token(RowTokenizer *lexer, ZDiag *diag) {
+  size_t newline_width = 0;
+  if (row_newline_at(lexer->source, lexer->offset, &newline_width)) {
+    row_tokenizer_emit_newline(lexer, newline_width);
+    return true;
+  }
+
+  char ch = lexer->source[lexer->offset];
+  if (ch == ' ') {
+    lexer->offset++;
+    lexer->column++;
+    return true;
+  }
+  if (ch == '\t') {
+    row_diag(diag, lexer->line, lexer->column, 1, "tabs are not valid row whitespace", "spaces", "use spaces between row tokens");
+    return false;
+  }
+  if (ch == '#') {
+    row_tokenizer_scan_comment(lexer, false);
+    return true;
+  }
+  if (isalpha((unsigned char)ch) || ch == '_') {
+    size_t start = lexer->offset;
+    int start_column = lexer->column;
+    while (isalnum((unsigned char)lexer->source[lexer->offset]) || lexer->source[lexer->offset] == '_') {
+      lexer->offset++;
+      lexer->column++;
+    }
+    row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_WORD, z_strndup(lexer->source + start, lexer->offset - start), lexer->line, start_column, start, lexer->offset - start));
+    return true;
+  }
+  if (isdigit((unsigned char)ch)) {
+    size_t start = lexer->offset;
+    int start_column = lexer->column;
+    while (isalnum((unsigned char)lexer->source[lexer->offset]) || lexer->source[lexer->offset] == '_' || lexer->source[lexer->offset] == '.' ||
+           ((lexer->source[lexer->offset] == '+' || lexer->source[lexer->offset] == '-') && lexer->offset > start && (lexer->source[lexer->offset - 1] == 'e' || lexer->source[lexer->offset - 1] == 'E'))) {
+      if (lexer->source[lexer->offset] == '.' && lexer->source[lexer->offset + 1] == '.') break;
+      lexer->offset++;
+      lexer->column++;
+    }
+    row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_NUMBER, z_strndup(lexer->source + start, lexer->offset - start), lexer->line, start_column, start, lexer->offset - start));
+    return true;
+  }
+  if (ch == '"') return row_scan_string(lexer->source, &lexer->offset, &lexer->column, &lexer->tokens, diag, lexer->line);
+  if (ch == '\'') return row_scan_char(lexer->source, &lexer->offset, &lexer->column, &lexer->tokens, diag, lexer->line);
+  if (row_two_char_symbol(lexer->source, lexer->offset)) {
+    row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_SYMBOL, z_strndup(lexer->source + lexer->offset, 2), lexer->line, lexer->column, lexer->offset, 2));
+    lexer->offset += 2;
+    lexer->column += 2;
+    return true;
+  }
+  if (strchr("()[]{}.,:;<>=+-*/%!&", ch)) {
+    row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_SYMBOL, z_strndup(lexer->source + lexer->offset, 1), lexer->line, lexer->column, lexer->offset, 1));
+    lexer->offset++;
+    lexer->column++;
+    return true;
+  }
+
+  row_diag(diag, lexer->line, lexer->column, 1, "unexpected character in row syntax", "row token", NULL);
+  return false;
+}
+
+static void row_tokenizer_finish(RowTokenizer *lexer) {
+  while (lexer->indents.len > 1) {
+    lexer->indents.len--;
+    row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_DEDENT, z_strdup(""), lexer->line, lexer->column, lexer->offset, 0));
+  }
+  row_push_token(&lexer->tokens, row_token(Z_ROW_TOKEN_EOF, z_strdup(""), lexer->line, lexer->column, lexer->offset, 0));
+  free(lexer->indents.items);
+}
+
 ZRowTokenVec z_row_tokenize(const char *source, ZDiag *diag) {
-  ZRowTokenVec tokens = {0};
-  RowIndentStack indents = {0};
-  row_push_indent(&indents, 0);
+  RowTokenizer lexer = {.source = source, .line = 1, .column = 1, .at_line_start = true};
+  row_push_indent(&lexer.indents, 0);
 
-  size_t offset = 0;
-  int line = 1;
-  int column = 1;
-  bool at_line_start = true;
-
-  while (source && source[offset]) {
-    if (at_line_start) {
-      size_t indent = 0;
-      size_t indent_start = offset;
-      while (source[offset] == ' ' || source[offset] == '\t') {
-        if (source[offset] == '\t') {
-          row_diag(diag, line, column, 1, "tabs are not valid row indentation", "spaces", "use two spaces per indentation level");
-          free(indents.items);
-          return tokens;
-        }
-        offset++;
-        column++;
-        indent++;
+  while (lexer.source && lexer.source[lexer.offset]) {
+    if (lexer.at_line_start) {
+      bool consumed = false;
+      bool done = false;
+      if (!row_tokenizer_scan_line_start(&lexer, diag, &consumed, &done)) {
+        free(lexer.indents.items);
+        return lexer.tokens;
       }
-
-      size_t newline_width = 0;
-      if (row_newline_at(source, offset, &newline_width)) {
-        row_push_token(&tokens, row_token(Z_ROW_TOKEN_NEWLINE, z_strdup(""), line, column, offset, newline_width));
-        offset += newline_width;
-        line++;
-        column = 1;
-        continue;
-      }
-
-      if (source[offset] == 0) break;
-
-      if (indent % 2 != 0) {
-        row_diag(diag, line, 1, (int)(offset - indent_start), "row indentation must use two-space steps", "a multiple of two spaces", NULL);
-        free(indents.items);
-        return tokens;
-      }
-
-      if (source[offset] == '#') {
-        size_t start = offset;
-        int start_column = column;
-        while (source[offset] && !row_newline_at(source, offset, &newline_width)) {
-          offset++;
-          column++;
-        }
-        row_push_token(&tokens, row_token(Z_ROW_TOKEN_COMMENT, z_strndup(source + start, offset - start), line, start_column, start, offset - start));
-        if (row_newline_at(source, offset, &newline_width)) {
-          row_push_token(&tokens, row_token(Z_ROW_TOKEN_NEWLINE, z_strdup(""), line, column, offset, newline_width));
-          offset += newline_width;
-          line++;
-          column = 1;
-        }
-        continue;
-      }
-
-      size_t current_indent = indents.items[indents.len - 1];
-      if (indent > current_indent) {
-        if (indent != current_indent + 2) {
-          row_diag(diag, line, 1, (int)(offset - indent_start), "row indentation may only increase by one level", "two more spaces than the parent row", NULL);
-          free(indents.items);
-          return tokens;
-        }
-        row_push_indent(&indents, indent);
-        row_push_token(&tokens, row_token(Z_ROW_TOKEN_INDENT, z_strdup(""), line, 1, indent_start, indent));
-      } else if (indent < current_indent) {
-        while (indents.len > 1 && indent < indents.items[indents.len - 1]) {
-          indents.len--;
-          row_push_token(&tokens, row_token(Z_ROW_TOKEN_DEDENT, z_strdup(""), line, 1, indent_start, indent));
-        }
-        if (indent != indents.items[indents.len - 1]) {
-          row_diag(diag, line, 1, (int)(offset - indent_start), "row indentation does not match an open block", "an existing indentation level", NULL);
-          free(indents.items);
-          return tokens;
-        }
-      }
-      at_line_start = false;
+      if (done) break;
+      if (consumed) continue;
     }
-
-    size_t newline_width = 0;
-    if (row_newline_at(source, offset, &newline_width)) {
-      row_push_token(&tokens, row_token(Z_ROW_TOKEN_NEWLINE, z_strdup(""), line, column, offset, newline_width));
-      offset += newline_width;
-      line++;
-      column = 1;
-      at_line_start = true;
-      continue;
+    if (!row_tokenizer_scan_token(&lexer, diag)) {
+      free(lexer.indents.items);
+      return lexer.tokens;
     }
-
-    char ch = source[offset];
-    if (ch == ' ') {
-      offset++;
-      column++;
-      continue;
-    }
-    if (ch == '\t') {
-      row_diag(diag, line, column, 1, "tabs are not valid row whitespace", "spaces", "use spaces between row tokens");
-      free(indents.items);
-      return tokens;
-    }
-    if (ch == '#') {
-      size_t start = offset;
-      int start_column = column;
-      while (source[offset] && !row_newline_at(source, offset, &newline_width)) {
-        offset++;
-        column++;
-      }
-      row_push_token(&tokens, row_token(Z_ROW_TOKEN_COMMENT, z_strndup(source + start, offset - start), line, start_column, start, offset - start));
-      continue;
-    }
-    if (isalpha((unsigned char)ch) || ch == '_') {
-      size_t start = offset;
-      int start_column = column;
-      while (isalnum((unsigned char)source[offset]) || source[offset] == '_') {
-        offset++;
-        column++;
-      }
-      row_push_token(&tokens, row_token(Z_ROW_TOKEN_WORD, z_strndup(source + start, offset - start), line, start_column, start, offset - start));
-      continue;
-    }
-    if (isdigit((unsigned char)ch)) {
-      size_t start = offset;
-      int start_column = column;
-      while (isalnum((unsigned char)source[offset]) || source[offset] == '_' || source[offset] == '.' ||
-             ((source[offset] == '+' || source[offset] == '-') && offset > start && (source[offset - 1] == 'e' || source[offset - 1] == 'E'))) {
-        if (source[offset] == '.' && source[offset + 1] == '.') break;
-        offset++;
-        column++;
-      }
-      row_push_token(&tokens, row_token(Z_ROW_TOKEN_NUMBER, z_strndup(source + start, offset - start), line, start_column, start, offset - start));
-      continue;
-    }
-    if (ch == '"') {
-      if (!row_scan_string(source, &offset, &column, &tokens, diag, line)) {
-        free(indents.items);
-        return tokens;
-      }
-      continue;
-    }
-    if (ch == '\'') {
-      if (!row_scan_char(source, &offset, &column, &tokens, diag, line)) {
-        free(indents.items);
-        return tokens;
-      }
-      continue;
-    }
-    if (row_two_char_symbol(source, offset)) {
-      row_push_token(&tokens, row_token(Z_ROW_TOKEN_SYMBOL, z_strndup(source + offset, 2), line, column, offset, 2));
-      offset += 2;
-      column += 2;
-      continue;
-    }
-    if (strchr("()[]{}.,:;<>=+-*/%!&", ch)) {
-      row_push_token(&tokens, row_token(Z_ROW_TOKEN_SYMBOL, z_strndup(source + offset, 1), line, column, offset, 1));
-      offset++;
-      column++;
-      continue;
-    }
-
-    row_diag(diag, line, column, 1, "unexpected character in row syntax", "row token", NULL);
-    free(indents.items);
-    return tokens;
   }
 
-  while (indents.len > 1) {
-    indents.len--;
-    row_push_token(&tokens, row_token(Z_ROW_TOKEN_DEDENT, z_strdup(""), line, column, offset, 0));
-  }
-  row_push_token(&tokens, row_token(Z_ROW_TOKEN_EOF, z_strdup(""), line, column, offset, 0));
-  free(indents.items);
-
-  if (row_has_diag(diag)) return tokens;
-  return tokens;
+  row_tokenizer_finish(&lexer);
+  return lexer.tokens;
 }
 
 static bool row_newline_is_blank(const ZRowTokenVec *tokens, size_t index, size_t first_token);

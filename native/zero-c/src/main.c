@@ -6417,6 +6417,77 @@ static bool test_eval_function(const Program *program, const Function *fun, cons
   return true;
 }
 
+static bool test_eval_binary_expr(const Program *program, TestEnv *env, const Expr *expr, TestValue *out, TestRunFailure *failure) {
+  TestValue left = {0}, right = {0};
+  if (!test_eval_expr(program, env, expr->left, &left, failure) ||
+      !test_eval_expr(program, env, expr->right, &right, failure)) {
+    test_value_free(&left); test_value_free(&right);
+    return false;
+  }
+  const char *op = expr->text ? expr->text : "";
+  if (strcmp(op, "==") == 0 || strcmp(op, "!=") == 0) {
+    out->kind = TEST_VALUE_BOOL;
+    out->bool_value = test_value_equals(&left, &right);
+    if (strcmp(op, "!=") == 0) out->bool_value = !out->bool_value;
+  } else if (strcmp(op, "&&") == 0 || strcmp(op, "||") == 0) {
+    out->kind = TEST_VALUE_BOOL;
+    out->bool_value = strcmp(op, "&&") == 0 ? (test_value_truthy(&left) && test_value_truthy(&right)) : (test_value_truthy(&left) || test_value_truthy(&right));
+  } else {
+    long long a = left.kind == TEST_VALUE_BOOL ? (left.bool_value ? 1 : 0) : left.int_value;
+    long long b = right.kind == TEST_VALUE_BOOL ? (right.bool_value ? 1 : 0) : right.int_value;
+    out->kind = TEST_VALUE_INT;
+    if (strcmp(op, "+") == 0) out->int_value = a + b;
+    else if (strcmp(op, "-") == 0) out->int_value = a - b;
+    else if (strcmp(op, "*") == 0) out->int_value = a * b;
+    else if (strcmp(op, "/") == 0) out->int_value = b == 0 ? 0 : a / b;
+    else if (strcmp(op, "%") == 0) out->int_value = b == 0 ? 0 : a % b;
+    else if (strcmp(op, "<") == 0 || strcmp(op, "<=") == 0 || strcmp(op, ">") == 0 || strcmp(op, ">=") == 0) {
+      out->kind = TEST_VALUE_BOOL;
+      if (strcmp(op, "<") == 0) out->bool_value = a < b;
+      else if (strcmp(op, "<=") == 0) out->bool_value = a <= b;
+      else if (strcmp(op, ">") == 0) out->bool_value = a > b;
+      else out->bool_value = a >= b;
+    } else {
+      test_fail(failure, expr, "zero test unsupported operator");
+      test_value_free(&left);
+      test_value_free(&right);
+      return false;
+    }
+  }
+  test_value_free(&left); test_value_free(&right);
+  return true;
+}
+
+static bool test_eval_call_expr(const Program *program, TestEnv *env, const Expr *expr, TestValue *out, TestRunFailure *failure) {
+  ZBuf name;
+  zbuf_init(&name);
+  if (!test_expr_name(expr->left, &name)) {
+    zbuf_free(&name);
+    test_fail(failure, expr, "zero test unsupported callee");
+    return false;
+  }
+  const char *callee_name = name.data ? name.data : "";
+  TestValue *args = z_checked_calloc(expr->args.len ? expr->args.len : 1, sizeof(TestValue));
+  for (size_t i = 0; i < expr->args.len; i++) {
+    if (!test_eval_expr(program, env, expr->args.items[i], &args[i], failure)) {
+      for (size_t j = 0; j <= i; j++) test_value_free(&args[j]);
+      free(args); zbuf_free(&name);
+      return false;
+    }
+  }
+  bool ok = true;
+  if (strcmp(callee_name, "std.mem.eql") == 0 && expr->args.len == 2) {
+    out->kind = TEST_VALUE_BOOL;
+    out->bool_value = test_value_equals(&args[0], &args[1]);
+  } else {
+    const Function *fun = find_program_function(program, callee_name);
+    ok = test_eval_function(program, fun, args, expr->args.len, out, failure);
+  }
+  for (size_t i = 0; i < expr->args.len; i++) test_value_free(&args[i]);
+  free(args); zbuf_free(&name);
+  return ok;
+}
+
 static bool test_eval_expr(const Program *program, TestEnv *env, const Expr *expr, TestValue *out, TestRunFailure *failure) {
   if (!expr || !out) return false;
   switch (expr->kind) {
@@ -6462,80 +6533,10 @@ static bool test_eval_expr(const Program *program, TestEnv *env, const Expr *exp
       test_fail(failure, expr, "zero test unknown field");
       return false;
     }
-    case EXPR_BINARY: {
-      TestValue left = {0};
-      TestValue right = {0};
-      if (!test_eval_expr(program, env, expr->left, &left, failure) ||
-          !test_eval_expr(program, env, expr->right, &right, failure)) {
-        test_value_free(&left);
-        test_value_free(&right);
-        return false;
-      }
-      const char *op = expr->text ? expr->text : "";
-      if (strcmp(op, "==") == 0 || strcmp(op, "!=") == 0) {
-        out->kind = TEST_VALUE_BOOL;
-        out->bool_value = test_value_equals(&left, &right);
-        if (strcmp(op, "!=") == 0) out->bool_value = !out->bool_value;
-      } else if (strcmp(op, "&&") == 0 || strcmp(op, "||") == 0) {
-        out->kind = TEST_VALUE_BOOL;
-        out->bool_value = strcmp(op, "&&") == 0 ? (test_value_truthy(&left) && test_value_truthy(&right)) : (test_value_truthy(&left) || test_value_truthy(&right));
-      } else {
-        long long a = left.kind == TEST_VALUE_BOOL ? (left.bool_value ? 1 : 0) : left.int_value;
-        long long b = right.kind == TEST_VALUE_BOOL ? (right.bool_value ? 1 : 0) : right.int_value;
-        out->kind = TEST_VALUE_INT;
-        if (strcmp(op, "+") == 0) out->int_value = a + b;
-        else if (strcmp(op, "-") == 0) out->int_value = a - b;
-        else if (strcmp(op, "*") == 0) out->int_value = a * b;
-        else if (strcmp(op, "/") == 0) out->int_value = b == 0 ? 0 : a / b;
-        else if (strcmp(op, "%") == 0) out->int_value = b == 0 ? 0 : a % b;
-        else if (strcmp(op, "<") == 0 || strcmp(op, "<=") == 0 || strcmp(op, ">") == 0 || strcmp(op, ">=") == 0) {
-          out->kind = TEST_VALUE_BOOL;
-          if (strcmp(op, "<") == 0) out->bool_value = a < b;
-          else if (strcmp(op, "<=") == 0) out->bool_value = a <= b;
-          else if (strcmp(op, ">") == 0) out->bool_value = a > b;
-          else out->bool_value = a >= b;
-        } else {
-          test_fail(failure, expr, "zero test unsupported operator");
-          test_value_free(&left);
-          test_value_free(&right);
-          return false;
-        }
-      }
-      test_value_free(&left);
-      test_value_free(&right);
-      return true;
-    }
-    case EXPR_CALL: {
-      ZBuf name;
-      zbuf_init(&name);
-      if (!test_expr_name(expr->left, &name)) {
-        zbuf_free(&name);
-        test_fail(failure, expr, "zero test unsupported callee");
-        return false;
-      }
-      const char *callee_name = name.data ? name.data : "";
-      TestValue *args = z_checked_calloc(expr->args.len ? expr->args.len : 1, sizeof(TestValue));
-      for (size_t i = 0; i < expr->args.len; i++) {
-        if (!test_eval_expr(program, env, expr->args.items[i], &args[i], failure)) {
-          for (size_t j = 0; j <= i; j++) test_value_free(&args[j]);
-          free(args);
-          zbuf_free(&name);
-          return false;
-        }
-      }
-      bool ok = true;
-      if (strcmp(callee_name, "std.mem.eql") == 0 && expr->args.len == 2) {
-        out->kind = TEST_VALUE_BOOL;
-        out->bool_value = test_value_equals(&args[0], &args[1]);
-      } else {
-        const Function *fun = find_program_function(program, callee_name);
-        ok = test_eval_function(program, fun, args, expr->args.len, out, failure);
-      }
-      for (size_t i = 0; i < expr->args.len; i++) test_value_free(&args[i]);
-      free(args);
-      zbuf_free(&name);
-      return ok;
-    }
+    case EXPR_BINARY:
+      return test_eval_binary_expr(program, env, expr, out, failure);
+    case EXPR_CALL:
+      return test_eval_call_expr(program, env, expr, out, failure);
     default:
       test_fail(failure, expr, "zero test direct runner does not support this expression yet");
       return false;
