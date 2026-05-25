@@ -2552,6 +2552,19 @@ assert(callFacts.calls.some((item) => item.kind === "shape_namespace" && item.ca
 assert(callFacts.calls.some((item) => item.kind === "receiver" && item.calleeName === "bump" && item.shape === "Counter" && item.paramOffset === 1));
 assert(callFacts.calls.some((item) => item.kind === "constrained_interface" && item.calleeName === "read" && item.interface === "Readable" && item.owner === "readValue"));
 assert(callFacts.calls.some((item) => item.kind === "concrete_constrained_shape" && item.calleeName === "read" && item.shape === "Counter" && item.instantiatedBy === "main"));
+assert(callFacts.calls.some((item) => item.calleeName === "add" && item.path === "conformance/check/pass/call-resolution-inspection.0"));
+
+const callResolutionMemGetGraph = await execFileAsync(zero, ["graph", "--json", "conformance/native/pass/checked-bounds-get.0"]);
+const callResolutionMemGetFacts = JSON.parse(callResolutionMemGetGraph.stdout).callResolution;
+assert(callResolutionMemGetFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.mem.get" && item.returnType === "Maybe<u8>" && item.args.some((arg) => arg.paramIndex === 0 && arg.actualType === "[3]u8")));
+
+const callResolutionFsReadGraph = await execFileAsync(zero, ["graph", "--json", "conformance/native/pass/std-fs-resource.0"]);
+const callResolutionFsReadFacts = JSON.parse(callResolutionFsReadGraph.stdout).callResolution;
+assert(callResolutionFsReadFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.fs.read" && item.returnType === "Maybe<usize>" && item.args.some((arg) => arg.paramIndex === 0 && arg.expectedType === "mutref<File>" && arg.actualType === "mutref<File>")));
+
+const callResolutionPackageGraph = await execFileAsync(zero, ["graph", "--json", "examples/systems-package"]);
+const callResolutionPackageFacts = JSON.parse(callResolutionPackageGraph.stdout).callResolution;
+assert(callResolutionPackageFacts.calls.some((item) => item.calleeName === "cleanup" && item.path === "examples/systems-package/src/main.0" && item.line === 8));
 
 const memorySize = await execFileAsync(zero, ["size", "--json", "--target", "linux-musl-x64", "examples/memory-package"]);
 const memorySizeBody = JSON.parse(memorySize.stdout);
