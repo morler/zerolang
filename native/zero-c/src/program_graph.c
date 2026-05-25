@@ -59,6 +59,7 @@ void z_program_graph_free(ZProgramGraph *graph) {
   for (size_t i = 0; i < graph->edge_len; i++) {
     free(graph->edges[i].from);
     free(graph->edges[i].to);
+    free(graph->edges[i].kind);
   }
   free(graph->graph_hash);
   free(graph->nodes);
@@ -96,7 +97,7 @@ static void graph_add_edge_target(ZProgramGraph *graph, const char *from, const 
   ZProgramGraphEdge *edge = &graph->edges[graph->edge_len++];
   edge->from = z_strdup(from);
   edge->to = z_strdup(to);
-  edge->kind = kind;
+  edge->kind = z_strdup(kind);
   edge->target = target;
   edge->order = order;
 }

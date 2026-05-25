@@ -3164,7 +3164,7 @@ static void print_help(void) {
   printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero graph [dump] [--json] <file.0|file.row|project|zero.json>\n");
+  printf("  zero graph [dump] [--json] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
   printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
@@ -3242,10 +3242,10 @@ static void print_command_help(const char *command) {
     printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
-    printf("Usage: zero graph [dump] [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero graph [dump] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json>\n\n");
     printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or the deterministic ProgramGraph.\n\n");
     printf("Subcommands:\n");
-    printf("  dump    print only the deterministic ProgramGraph\n");
+    printf("  dump    print or write only the deterministic ProgramGraph\n");
   } else if (strcmp(command, "doc") == 0) {
     printf("Usage: zero doc [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Emit package API documentation facts without emitting artifacts.\n");
@@ -9097,6 +9097,52 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   zbuf_append(buf, "\n}\n");
 }
 
+static int run_graph_command(const Command *command, SourceInput *input, Program *program, const ZTargetInfo *target, ZDiag *diag) {
+  bool graph_dump = command->kind && strcmp(command->kind, "dump") == 0;
+  if (command->kind && !graph_dump) {
+    fprintf(stderr, "unknown graph mode: %s\n", command->kind);
+    return 1;
+  }
+  if (command->out && !graph_dump) {
+    fprintf(stderr, "graph --out is only supported with dump\n");
+    return 1;
+  }
+  ZBuf graph;
+  zbuf_init(&graph);
+  if (graph_dump) z_append_program_graph_dump(&graph, input, program, command->json);
+  else append_graph_json(&graph, input, program, target, command);
+  if (graph_dump && command->out && !command->json) {
+    ZProgramGraph stored;
+    if (!z_program_graph_parse_dump(graph.data ? graph.data : "", &stored, diag)) {
+      print_diag(diag->path ? diag->path : command->out, diag);
+      zbuf_free(&graph);
+      return 1;
+    }
+    ZProgramGraphValidation stored_validation = {0};
+    if (!z_program_graph_validate(&stored, &stored_validation)) {
+      *diag = (ZDiag){.code = 1, .path = command->out, .line = 1, .column = 1};
+      snprintf(diag->message, sizeof(diag->message), "stored program graph failed validation: %s", stored_validation.message);
+      z_program_graph_free(&stored);
+      print_diag(command->out, diag);
+      zbuf_free(&graph);
+      return 1;
+    }
+    z_program_graph_free(&stored);
+  }
+  if (command->out) {
+    if (!z_write_file(command->out, graph.data ? graph.data : "", diag)) {
+      if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
+      else print_diag(diag->path ? diag->path : command->out, diag);
+      zbuf_free(&graph);
+      return 1;
+    }
+  } else {
+    fputs(graph.data, stdout);
+  }
+  zbuf_free(&graph);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc >= 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "help") == 0)) {
     print_help();
@@ -9507,22 +9553,10 @@ int main(int argc, char **argv) {
   }
 
   if (is_graph_command) {
-    bool graph_dump = command.kind && strcmp(command.kind, "dump") == 0;
-    if (command.kind && !graph_dump) {
-      fprintf(stderr, "unknown graph mode: %s\n", command.kind);
-      z_free_program(&program);
-      z_free_source(&input);
-      return 1;
-    }
-    ZBuf graph;
-    zbuf_init(&graph);
-    if (graph_dump) z_append_program_graph_dump(&graph, &input, &program, command.json);
-    else append_graph_json(&graph, &input, &program, target, &command);
-    fputs(graph.data, stdout);
-    zbuf_free(&graph);
+    int rc = run_graph_command(&command, &input, &program, target, &diag);
     z_free_program(&program);
     z_free_source(&input);
-    return 0;
+    return rc;
   }
 
   long long phase_started = now_ms();

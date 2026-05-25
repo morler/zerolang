@@ -2593,10 +2593,16 @@ const programGraphBodyAgain = JSON.parse((await execFileAsync(zero, ["graph", "-
 const programGraphDump = (await execFileAsync(zero, ["graph", "dump", "examples/hello.0"])).stdout;
 const programGraphDumpAgain = (await execFileAsync(zero, ["graph", "dump", "examples/hello.0"])).stdout;
 const programGraphDumpJson = JSON.parse((await execFileAsync(zero, ["graph", "dump", "--json", "examples/hello.0"])).stdout);
+const programGraphDumpPath = `${outDir}/hello.program-graph`;
+await rm(programGraphDumpPath, { force: true });
+const programGraphDumpOut = await execFileAsync(zero, ["graph", "dump", "--out", programGraphDumpPath, "examples/hello.0"]);
+const programGraphDumpFile = await readFile(programGraphDumpPath, "utf8");
 assert.equal(programGraphBody.schemaVersion, 1);
 assert.equal(programGraphBody.canonicalSource, false);
 assert.deepEqual(programGraphBodyAgain, programGraphBody);
 assert.equal(programGraphDumpAgain, programGraphDump);
+assert.equal(programGraphDumpOut.stdout, "");
+assert.equal(programGraphDumpFile, programGraphDump);
 assert.deepEqual(programGraphDumpJson, programGraphBody);
 assert.match(programGraphDump, /^zero-program-graph v1\n/);
 assert.match(programGraphDump, /graphHash "graph:[0-9a-f]{16}"/);

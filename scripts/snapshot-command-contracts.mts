@@ -270,6 +270,12 @@ const graphDumpJson = json(["graph", "dump", "--json", "examples/hello.0"]).body
 assert.equal(graphDumpJson.schemaVersion, 1);
 assert.equal(graphDumpJson.validation.ok, true);
 assert.match(graphDumpJson.graphHash, /^graph:[0-9a-f]{16}$/);
+const graphDumpPath = join(outDir, "hello.program-graph");
+rmSync(graphDumpPath, { force: true });
+assert.equal(zero(["graph", "dump", "--out", graphDumpPath, "examples/hello.0"]).stdout, "");
+assert.equal(readFileSync(graphDumpPath, "utf8"), graphDump);
+assert.equal(zero(["graph", "dump", "--out", graphDumpPath, "examples/hello.0"]).stdout, "");
+assert.equal(readFileSync(graphDumpPath, "utf8"), graphDump);
 
 const skillsList = json(["skills", "list", "--json"]).body;
 assert.equal(skillsList.success, true);
