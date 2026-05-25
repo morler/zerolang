@@ -2546,6 +2546,7 @@ for (const kind of ["function", "stdlib", "receiver", "shape_namespace", "constr
 }
 assert(callFacts.calls.some((item) => item.kind === "function" && item.calleeName === "add" && item.returnType === "i32" && item.expectedArgCount === 2));
 assert(callFacts.calls.some((item) => item.kind === "function" && item.calleeName === "id" && item.bindings.some((binding) => binding.name === "T" && binding.type === "i32")));
+assert(callFacts.calls.some((item) => item.kind === "function" && item.calleeName === "id" && item.owner === "wrap" && item.instantiationDepth === 1 && item.instantiatedBy === "main" && item.returnType === "i32"));
 assert(callFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.mem.len" && item.returnType === "usize" && item.args.some((arg) => arg.actualType === "String")));
 assert(callFacts.calls.some((item) => item.kind === "choice_constructor" && item.calleeName === "Event.key" && item.choice === "Event" && item.choiceCase === "key"));
 assert(callFacts.calls.some((item) => item.kind === "shape_namespace" && item.calleeName === "read" && item.shape === "Counter"));

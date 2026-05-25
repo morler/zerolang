@@ -23,6 +23,9 @@ fn add i32 left i32 right i32
 fn id<T: Type> T value T
   ret value
 
+fn wrap<T: Type> T value T
+  ret id value
+
 fn readValue<T: Readable<T>> i32 value ref<T>
   ret T.read value
 
@@ -30,9 +33,10 @@ pub fn main Void world World !
   mut counter Counter Counter.init 41
   counter.bump 1
   let total i32 add (id<i32> 40) 2
+  let wrapped i32 wrap<i32> total
   let size usize std.mem.len "zero"
   let event Event Event.key total
   let direct i32 Counter.read (&counter)
   let viaInterface i32 readValue<Counter> (&counter)
-  if && (&& (== total 42) (== size 4)) (&& (== direct 42) (== viaInterface 42))
+  if && (&& (&& (== total 42) (== wrapped 42)) (== size 4)) (&& (== direct 42) (== viaInterface 42))
     check world.out.write "call resolution inspection ok\n"

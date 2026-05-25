@@ -7252,7 +7252,7 @@ static bool call_facts_resolve_call(CheckContext *ctx, const Program *program, c
     }
     return true;
   }
-  return resolve_provenance_call(ctx, program, expr, scope, expr->resolved_type, ctx ? ctx->function : NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, resolved);
+  return resolve_provenance_call(ctx, program, expr, scope, expr_resolved_type_for_current_context(ctx, expr), ctx ? ctx->function : NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, resolved);
 }
 
 static void call_facts_collect_expr(ZBuf *buf, const SourceInput *input, bool *wrote, CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, const char *owner, size_t instantiation_depth, const char *instantiated_by);
