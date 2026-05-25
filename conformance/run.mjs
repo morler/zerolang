@@ -2641,6 +2641,26 @@ await writeFile(programGraphWrongSchemaPath, "zero-program-graph v2\n");
 const programGraphWrongSchema = await execFileAsync(zero, ["graph", "validate", "--json", programGraphWrongSchemaPath]).catch((error) => error);
 assert(programGraphWrongSchema.code);
 assert.equal(JSON.parse(programGraphWrongSchema.stdout).diagnostics[0].message, "unknown program graph schema version");
+const programGraphFailedArtifactPath = `${outDir}/failed-validation.program-graph`;
+await writeFile(programGraphFailedArtifactPath, [
+  "zero-program-graph v1",
+  "canonicalSource false",
+  "idStrategy \"deterministic-traversal-r0\"",
+  "moduleIdentity \"module:main\"",
+  "graphHash \"\"",
+  "validation \"decoded\" failed",
+  "diagnostic code=\"GRF001\" message=\"program graph construction failed\"",
+  "counts nodes=0 edges=0",
+  "",
+].join("\n"));
+const programGraphFailedArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphFailedArtifactPath]).catch((error) => error);
+assert(programGraphFailedArtifact.code);
+assert.equal(JSON.parse(programGraphFailedArtifact.stdout).diagnostics[0].message, "program graph artifact reports failed validation");
+const programGraphTrailingArtifactPath = `${outDir}/trailing-content.program-graph`;
+await writeFile(programGraphTrailingArtifactPath, `${programGraphDump}\nextra\n`);
+const programGraphTrailingArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphTrailingArtifactPath]).catch((error) => error);
+assert(programGraphTrailingArtifact.code);
+assert.equal(JSON.parse(programGraphTrailingArtifact.stdout).diagnostics[0].message, "unexpected content after graph dump");
 assert(programGraphBody.edges.some((item) => item.kind === "statement" && item.order === 0));
 
 const programGraphControlFixture = `${outDir}/program-graph-control.0`;

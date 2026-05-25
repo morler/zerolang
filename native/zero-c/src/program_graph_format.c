@@ -478,8 +478,10 @@ bool z_program_graph_parse_dump(const char *text, ZProgramGraph *out, ZDiag *dia
   NEXT_REQUIRED_LINE();
   if (!graph_format_parse_validation_line(line, &out->validation_state, &validation_ok)) FAIL("expected validation field");
   if (!validation_ok) {
+    size_t validation_line = line_no;
     NEXT_REQUIRED_LINE();
     if (strncmp(line, "diagnostic ", 11) != 0) FAIL("expected diagnostic field after failed validation");
+    FAIL_AT(validation_line, "program graph artifact reports failed validation");
   }
   NEXT_REQUIRED_LINE();
   if (!graph_format_parse_counts_line(line, &node_count, &edge_count)) FAIL("expected node and edge counts");
@@ -499,10 +501,12 @@ bool z_program_graph_parse_dump(const char *text, ZProgramGraph *out, ZDiag *dia
   }
   free(line);
   line = NULL;
-  if (graph_format_next_line(&cursor, &line)) {
+  while (graph_format_next_line(&cursor, &line)) {
+    line_no++;
     bool extra = line[0] != 0;
     free(line);
-    if (extra) FAIL_AT(line_no + 1, "unexpected content after graph dump");
+    line = NULL;
+    if (extra) FAIL_AT(line_no, "unexpected content after graph dump");
   }
   if (validation_ok && !graph_format_identities_match(out)) FAIL_AT(1, "program graph identities do not match graph content");
 #undef NEXT_REQUIRED_LINE

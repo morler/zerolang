@@ -197,6 +197,30 @@ int main(void) {
   expect(!z_program_graph_parse_dump("zero-program-graph v2\n", &wrong_schema, &wrong_schema_diag), "unknown schema parsed");
   expect(strstr(wrong_schema_diag.message, "schema") != NULL, "unknown schema reported wrong diagnostic");
 
+  const char *failed_dump =
+      "zero-program-graph v1\n"
+      "canonicalSource false\n"
+      "idStrategy \"deterministic-traversal-r0\"\n"
+      "moduleIdentity \"module:main\"\n"
+      "graphHash \"\"\n"
+      "validation \"decoded\" failed\n"
+      "diagnostic code=\"GRF001\" message=\"program graph construction failed\"\n"
+      "counts nodes=0 edges=0\n";
+  ZProgramGraph failed_artifact;
+  ZDiag failed_artifact_diag = {0};
+  expect(!z_program_graph_parse_dump(failed_dump, &failed_artifact, &failed_artifact_diag), "failed validation artifact parsed");
+  expect(strstr(failed_artifact_diag.message, "failed validation") != NULL, "failed validation artifact reported wrong diagnostic");
+
+  ZBuf trailing_extra;
+  zbuf_init(&trailing_extra);
+  zbuf_append(&trailing_extra, dump.data);
+  zbuf_append(&trailing_extra, "\nextra\n");
+  ZProgramGraph trailing_artifact;
+  ZDiag trailing_artifact_diag = {0};
+  expect(!z_program_graph_parse_dump(trailing_extra.data, &trailing_artifact, &trailing_artifact_diag), "trailing content parsed");
+  expect(strstr(trailing_artifact_diag.message, "unexpected content") != NULL, "trailing content reported wrong diagnostic");
+
+  zbuf_free(&trailing_extra);
   zbuf_free(&corrupted);
   zbuf_free(&redump);
   z_program_graph_free(&parsed);
