@@ -354,6 +354,7 @@ for (const fixture of [
   "conformance/native/pass/const-layout.0",
   "conformance/native/pass/c-abi-export.0",
   "conformance/native/pass/range-slices.0",
+  "conformance/native/pass/byte-view-call-single-eval.0",
   "conformance/native/pass/generic-spans.0",
   "conformance/native/pass/open-ended-slices.0",
   "conformance/native/pass/string-slices.0",
@@ -2970,6 +2971,7 @@ assert.equal(JSON.parse(abiCheck.stdout).ok, true);
 for (const runtimeFixture of [
   ["conformance/native/pass/indexing-primitives.0", "indexing-primitives", { stdout: "indexing primitives ok\n" }],
   ["conformance/native/pass/range-slices.0", "range-slices", { stdout: "range slices ok\n" }],
+  ["conformance/native/pass/byte-view-call-single-eval.0", "byte-view-call-single-eval", { stdout: "byte view call single eval ok\n" }],
   ["conformance/native/pass/byte-view-params.0", "byte-view-params", { stdout: "byte view params ok\n" }],
   ["conformance/native/pass/bool-arrays.0", "bool-arrays", { stdout: "bool arrays ok\n" }],
   ["conformance/native/pass/generic-spans.0", "generic-spans", { stdout: "generic spans ok\n" }],

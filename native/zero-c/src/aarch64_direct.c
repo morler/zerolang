@@ -205,7 +205,24 @@ static bool a64_emit_rodata_ptr_literal(ZBuf *text, unsigned reg, unsigned data_
 
 static bool a64_emit_byte_view_ptr_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag);
 static bool a64_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag);
+static bool a64_emit_byte_view_pair_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned ptr_reg, unsigned len_reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag);
 static bool a64_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag);
+
+static void a64_emit_move_byte_view_pair(ZBuf *text, unsigned ptr_reg, unsigned len_reg, unsigned src_ptr_reg, unsigned src_len_reg) {
+  if (ptr_reg == src_len_reg && len_reg == src_ptr_reg) {
+    z_aarch64_emit_mov_x(text, 16, src_ptr_reg);
+    z_aarch64_emit_mov_w(text, len_reg, src_len_reg);
+    z_aarch64_emit_mov_x(text, ptr_reg, 16);
+    return;
+  }
+  if (ptr_reg == src_len_reg) {
+    if (len_reg != src_len_reg) z_aarch64_emit_mov_w(text, len_reg, src_len_reg);
+    if (ptr_reg != src_ptr_reg) z_aarch64_emit_mov_x(text, ptr_reg, src_ptr_reg);
+    return;
+  }
+  if (ptr_reg != src_ptr_reg) z_aarch64_emit_mov_x(text, ptr_reg, src_ptr_reg);
+  if (len_reg != src_len_reg) z_aarch64_emit_mov_w(text, len_reg, src_len_reg);
+}
 
 static bool a64_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!view) return a64_diag(diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
@@ -294,6 +311,46 @@ static bool a64_emit_byte_view_ptr_at(ZBuf *text, const IrFunction *fun, const I
   return a64_diag(diag, "direct AArch64 value is not a supported byte view", view->line, view->column, "unsupported byte view");
 }
 
+static bool a64_emit_byte_view_pair_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned ptr_reg, unsigned len_reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (ptr_reg == len_reg) return a64_diag(diag, "direct AArch64 byte-view pair requires distinct destination registers", view ? view->line : 1, view ? view->column : 1, "invalid byte-view registers");
+  if (view && view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) {
+    if (!a64_emit_value_to_reg_at(text, fun, view, 0, frame_size, scratch_slot, ctx, diag)) return false;
+    a64_emit_move_byte_view_pair(text, ptr_reg, len_reg, 0, 1);
+    return true;
+  }
+  if (view && view->kind == IR_VALUE_BYTE_SLICE) {
+    if (!view->index && !view->right) return a64_emit_byte_view_pair_at(text, fun, view->left, ptr_reg, len_reg, frame_size, scratch_slot, ctx, diag);
+    if (!a64_emit_byte_view_pair_at(text, fun, view->left, 11, 10, frame_size, scratch_slot, ctx, diag)) return false;
+    if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot, view->left, diag)) return false;
+    if (!a64_emit_store_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, view->left, diag)) return false;
+    if (view->index) {
+      if (!a64_emit_value_to_reg_at(text, fun, view->index, 8, frame_size, scratch_slot + 2, ctx, diag)) return false;
+    } else {
+      z_aarch64_emit_movz_w(text, 8, 0);
+    }
+    if (!a64_emit_store_scratch(text, 8, view->index ? view->index->type : IR_TYPE_U32, scratch_slot + 2, view->index, diag)) return false;
+    if (view->right) {
+      if (!a64_emit_value_to_reg_at(text, fun, view->right, 9, frame_size, scratch_slot + 3, ctx, diag)) return false;
+      if (!a64_emit_load_scratch(text, 8, view->index ? view->index->type : IR_TYPE_U32, scratch_slot + 2, view->index, diag)) return false;
+      a64_emit_binary_reg(text, IR_BIN_SUB, 10, 9, 8, false);
+    } else {
+      if (!a64_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, view->left, diag)) return false;
+      if (!a64_emit_load_scratch(text, 8, view->index ? view->index->type : IR_TYPE_U32, scratch_slot + 2, view->index, diag)) return false;
+      a64_emit_binary_reg(text, IR_BIN_SUB, 10, 10, 8, false);
+    }
+    if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot, view->left, diag)) return false;
+    if (!a64_emit_load_scratch(text, 8, view->index ? view->index->type : IR_TYPE_U32, scratch_slot + 2, view->index, diag)) return false;
+    z_aarch64_emit_add_x_reg(text, 11, 11, 8);
+    a64_emit_move_byte_view_pair(text, ptr_reg, len_reg, 11, 10);
+    return true;
+  }
+  if (!a64_emit_byte_view_ptr_at(text, fun, view, ptr_reg, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, ptr_reg, IR_TYPE_U64, scratch_slot, view, diag)) return false;
+  if (!a64_emit_byte_view_len_at(text, fun, view, len_reg, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, ptr_reg, IR_TYPE_U64, scratch_slot, view, diag)) return false;
+  return true;
+}
+
 static bool a64_emit_cast_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!a64_emit_value_to_reg_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
   a64_emit_cast_normalize_reg(text, reg, value->left ? value->left->type : IR_TYPE_UNSUPPORTED, value->type);
@@ -369,13 +426,11 @@ static bool a64_emit_compare_to_reg_at(ZBuf *text, const IrFunction *fun, const 
 
 static bool a64_emit_byte_copy_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 byte copy requires source and destination byte views", value->line, value->column, "missing byte view");
-  if (!a64_emit_byte_view_ptr_at(text, fun, value->left, 11, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->left, 11, 10, frame_size, scratch_slot, ctx, diag)) return false;
   if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
-  if (!a64_emit_byte_view_len_at(text, fun, value->left, 10, frame_size, scratch_slot + 1, ctx, diag)) return false;
   if (!a64_emit_store_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
-  if (!a64_emit_byte_view_ptr_at(text, fun, value->right, 12, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->right, 12, 13, frame_size, scratch_slot + 2, ctx, diag)) return false;
   if (!a64_emit_store_scratch(text, 12, IR_TYPE_U64, scratch_slot + 2, value->right, diag)) return false;
-  if (!a64_emit_byte_view_len_at(text, fun, value->right, 13, frame_size, scratch_slot + 3, ctx, diag)) return false;
   if (!a64_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
   if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
   if (!a64_emit_load_scratch(text, 12, IR_TYPE_U64, scratch_slot + 2, value->right, diag)) return false;
@@ -387,9 +442,8 @@ static bool a64_emit_byte_fill_to_reg_at(ZBuf *text, const IrFunction *fun, cons
   if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 byte fill requires a fill byte and destination byte view", value->line, value->column, "missing byte fill input");
   if (!a64_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
   if (!a64_emit_store_scratch(text, 8, IR_TYPE_U8, scratch_slot, value->left, diag)) return false;
-  if (!a64_emit_byte_view_ptr_at(text, fun, value->right, 11, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->right, 11, 10, frame_size, scratch_slot + 1, ctx, diag)) return false;
   if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->right, diag)) return false;
-  if (!a64_emit_byte_view_len_at(text, fun, value->right, 10, frame_size, scratch_slot + 2, ctx, diag)) return false;
   if (!a64_emit_load_scratch(text, 8, IR_TYPE_U8, scratch_slot, value->left, diag)) return false;
   if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->right, diag)) return false;
   z_aarch64_emit_byte_fill_loop(text, reg);
@@ -398,18 +452,16 @@ static bool a64_emit_byte_fill_to_reg_at(ZBuf *text, const IrFunction *fun, cons
 
 static bool a64_emit_byte_view_eq_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 byte-view equality requires two byte views", value->line, value->column, "missing byte view");
-  if (!a64_emit_byte_view_len_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->left, 11, 8, frame_size, scratch_slot, ctx, diag)) return false;
   if (!a64_emit_store_scratch(text, 8, IR_TYPE_U32, scratch_slot, value->left, diag)) return false;
-  if (!a64_emit_byte_view_len_at(text, fun, value->right, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->left, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->right, 12, 9, frame_size, scratch_slot + 2, ctx, diag)) return false;
   if (!a64_emit_load_scratch(text, 8, IR_TYPE_U32, scratch_slot, value->left, diag)) return false;
   z_aarch64_emit_cmp_w(text, 8, 9);
   size_t same_len = z_aarch64_emit_b_cond_placeholder(text, 0);
   z_aarch64_emit_movz_w(text, reg, 0);
   size_t end_patch = z_aarch64_emit_b_placeholder(text);
   z_aarch64_patch_cond19(text, same_len, text->len);
-  if (!a64_emit_byte_view_ptr_at(text, fun, value->left, 11, frame_size, scratch_slot + 1, ctx, diag)) return false;
-  if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->left, diag)) return false;
-  if (!a64_emit_byte_view_ptr_at(text, fun, value->right, 12, frame_size, scratch_slot + 2, ctx, diag)) return false;
   if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->left, diag)) return false;
   if (!a64_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot, value->left, diag)) return false;
   z_aarch64_emit_byte_eq_loop(text, reg);
@@ -420,10 +472,9 @@ static bool a64_emit_byte_view_eq_to_reg_at(ZBuf *text, const IrFunction *fun, c
 static bool a64_emit_byte_view_index_load_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!value->index || !a64_emit_value_to_reg_at(text, fun, value->index, 8, frame_size, scratch_slot, ctx, diag)) return false;
   if (!a64_emit_store_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
-  if (!a64_emit_byte_view_len_at(text, fun, value->left, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->left, 9, 10, frame_size, scratch_slot + 1, ctx, diag)) return false;
   if (!a64_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
-  a64_emit_u32_bounds_check(text, 8, 9);
-  if (!a64_emit_byte_view_ptr_at(text, fun, value->left, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  a64_emit_u32_bounds_check(text, 8, 10);
   if (!a64_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
   z_aarch64_emit_add_x_reg(text, 9, 9, 8);
   z_aarch64_emit_load_b_imm(text, reg, 9, 0);
@@ -481,10 +532,9 @@ static bool a64_emit_call_to_reg_at(ZBuf *text, const IrFunction *fun, const IrV
     const IrValue *arg = value->args[i];
     const IrLocal *param = &callee->locals[i];
     if (param->type == IR_TYPE_BYTE_VIEW) {
-      if (!a64_emit_byte_view_ptr_at(text, fun, arg, 8, frame_size, nested_slot, ctx, diag)) return false;
+      if (!a64_emit_byte_view_pair_at(text, fun, arg, 8, 9, frame_size, nested_slot, ctx, diag)) return false;
       if (!a64_emit_store_scratch(text, 8, IR_TYPE_U64, arg_slot, arg, diag)) return false;
-      if (!a64_emit_byte_view_len_at(text, fun, arg, 8, frame_size, nested_slot, ctx, diag)) return false;
-      if (!a64_emit_store_scratch(text, 8, IR_TYPE_U32, arg_slot + 1, arg, diag)) return false;
+      if (!a64_emit_store_scratch(text, 9, IR_TYPE_U32, arg_slot + 1, arg, diag)) return false;
       arg_slot += 2;
       continue;
     }
@@ -589,16 +639,9 @@ static bool a64_emit_local_set(ZBuf *text, const IrFunction *fun, const IrInstr 
   if (instr->local_index >= fun->local_len) return a64_diag(diag, "direct AArch64 local store is out of range", instr->line, instr->column, "invalid local");
   const IrLocal *local = &fun->locals[instr->local_index];
   if (local->type == IR_TYPE_BYTE_VIEW) {
-    if (instr->value && instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_BYTE_VIEW) {
-      if (!a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
-      a64_emit_store_local_x(text, fun, 0, instr->local_index, 0, frame_size);
-      a64_emit_store_local_w(text, fun, 1, instr->local_index, 8, frame_size);
-      return true;
-    }
-    if (!a64_emit_byte_view_ptr_at(text, fun, instr->value, 8, frame_size, 0, ctx, diag)) return false;
+    if (!a64_emit_byte_view_pair_at(text, fun, instr->value, 8, 9, frame_size, 0, ctx, diag)) return false;
     a64_emit_store_local_x(text, fun, 8, instr->local_index, 0, frame_size);
-    if (!a64_emit_byte_view_len_at(text, fun, instr->value, 8, frame_size, 0, ctx, diag)) return false;
-    a64_emit_store_local_w(text, fun, 8, instr->local_index, 8, frame_size);
+    a64_emit_store_local_w(text, fun, 9, instr->local_index, 8, frame_size);
     return true;
   }
   if (local->type == IR_TYPE_MAYBE_BYTE_VIEW) {
@@ -612,10 +655,9 @@ static bool a64_emit_local_set(ZBuf *text, const IrFunction *fun, const IrInstr 
         a64_emit_store_local_w(text, fun, 8, instr->local_index, 16, frame_size);
         return true;
       }
-      if (!a64_emit_byte_view_ptr_at(text, fun, instr->value->left, 8, frame_size, 0, ctx, diag)) return false;
+      if (!a64_emit_byte_view_pair_at(text, fun, instr->value->left, 8, 9, frame_size, 0, ctx, diag)) return false;
       a64_emit_store_local_x(text, fun, 8, instr->local_index, 8, frame_size);
-      if (!a64_emit_byte_view_len_at(text, fun, instr->value->left, 8, frame_size, 0, ctx, diag)) return false;
-      a64_emit_store_local_w(text, fun, 8, instr->local_index, 16, frame_size);
+      a64_emit_store_local_w(text, fun, 9, instr->local_index, 16, frame_size);
       return true;
     }
     if (instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
@@ -687,8 +729,7 @@ static bool a64_emit_index_store(ZBuf *text, const IrFunction *fun, const IrInst
 static bool a64_emit_world_write(ZBuf *text, const IrFunction *fun, const IrInstr *instr, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!instr || !instr->value) return a64_diag(diag, "direct AArch64 World write requires bytes", instr ? instr->line : 1, instr ? instr->column : 1, "missing byte view");
   if (!ctx || !ctx->emit_world_write) return a64_diag(diag, "direct AArch64 World write requires an executable target runtime", instr->line, instr->column, "unsupported instruction");
-  if (!a64_emit_byte_view_ptr_at(text, fun, instr->value, 1, frame_size, 0, ctx, diag)) return false;
-  if (!a64_emit_byte_view_len_at(text, fun, instr->value, 2, frame_size, 0, ctx, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, instr->value, 1, 2, frame_size, 0, ctx, diag)) return false;
   z_aarch64_emit_movz_w(text, 0, instr->field_offset == 2 ? 2u : 1u);
   return ctx->emit_world_write(text, instr, ctx, diag);
 }
@@ -703,8 +744,7 @@ static bool a64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
       if (instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_BYTE_VIEW) {
         if (!a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
       } else {
-        if (!a64_emit_byte_view_ptr_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
-        if (!a64_emit_byte_view_len_at(text, fun, instr->value, 1, frame_size, 0, ctx, diag)) return false;
+        if (!a64_emit_byte_view_pair_at(text, fun, instr->value, 0, 1, frame_size, 0, ctx, diag)) return false;
       }
       a64_emit_epilogue(text, frame_size);
       return true;
@@ -719,8 +759,7 @@ static bool a64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
           z_aarch64_emit_movz_w(text, 2, 0);
         } else {
           z_aarch64_emit_movz_w(text, 0, 1);
-          if (!a64_emit_byte_view_ptr_at(text, fun, instr->value->left, 1, frame_size, 0, ctx, diag)) return false;
-          if (!a64_emit_byte_view_len_at(text, fun, instr->value->left, 2, frame_size, 0, ctx, diag)) return false;
+          if (!a64_emit_byte_view_pair_at(text, fun, instr->value->left, 1, 2, frame_size, 0, ctx, diag)) return false;
         }
       } else {
         return a64_diag(diag, "direct AArch64 Maybe byte-view return requires a Maybe byte-view value", instr->line, instr->column, "unsupported Maybe byte-view return");

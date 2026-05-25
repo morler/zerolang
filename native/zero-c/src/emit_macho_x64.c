@@ -236,6 +236,7 @@ static bool machx64_emit_rodata_ptr_rax(ZBuf *text, unsigned data_offset, MachOE
 
 static bool machx64_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const IrValue *view, MachOEmitContext *ctx, ZDiag *diag);
 static bool machx64_emit_byte_view_len(ZBuf *text, const IrFunction *fun, const IrValue *view, MachOEmitContext *ctx, ZDiag *diag);
+static bool machx64_emit_byte_view_pair(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned ptr_reg, unsigned len_reg, MachOEmitContext *ctx, ZDiag *diag);
 static bool machx64_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag);
 
 static bool machx64_emit_byte_view_len(ZBuf *text, const IrFunction *fun, const IrValue *view, MachOEmitContext *ctx, ZDiag *diag) {
@@ -328,6 +329,63 @@ static bool machx64_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const 
   return machx64_diag_at(diag, "direct x86_64 Mach-O value is not a supported byte view", view->line, view->column, "unsupported byte view");
 }
 
+static void machx64_emit_move_byte_view_pair(ZBuf *text, unsigned ptr_reg, unsigned len_reg, unsigned src_ptr_reg, unsigned src_len_reg) {
+  if (ptr_reg == src_len_reg && len_reg == src_ptr_reg) {
+    z_x64_emit_push_reg64(text, src_ptr_reg);
+    z_x64_emit_mov_reg_from_reg(text, len_reg, src_len_reg, true);
+    z_x64_emit_pop_reg64(text, ptr_reg);
+    return;
+  }
+  if (ptr_reg == src_len_reg) {
+    if (len_reg != src_len_reg) z_x64_emit_mov_reg_from_reg(text, len_reg, src_len_reg, true);
+    if (ptr_reg != src_ptr_reg) z_x64_emit_mov_reg_from_reg(text, ptr_reg, src_ptr_reg, true);
+    return;
+  }
+  if (ptr_reg != src_ptr_reg) z_x64_emit_mov_reg_from_reg(text, ptr_reg, src_ptr_reg, true);
+  if (len_reg != src_len_reg) z_x64_emit_mov_reg_from_reg(text, len_reg, src_len_reg, true);
+}
+
+static bool machx64_emit_byte_view_pair(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned ptr_reg, unsigned len_reg, MachOEmitContext *ctx, ZDiag *diag) {
+  if (ptr_reg == len_reg) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view pair requires distinct destination registers", view ? view->line : 1, view ? view->column : 1, "invalid byte-view registers");
+  if (view && view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) {
+    if (!machx64_emit_value(text, fun, view, ctx, diag)) return false;
+    machx64_emit_move_byte_view_pair(text, ptr_reg, len_reg, 0, 2);
+    return true;
+  }
+  if (view && view->kind == IR_VALUE_BYTE_SLICE) {
+    if (!view->index && !view->right) return machx64_emit_byte_view_pair(text, fun, view->left, ptr_reg, len_reg, ctx, diag);
+    if (!machx64_emit_byte_view_pair(text, fun, view->left, 8, 10, ctx, diag)) return false;
+    z_x64_emit_push_reg64(text, 8);
+    z_x64_emit_push_reg64(text, 10);
+    if (view->index) {
+      if (!machx64_emit_value(text, fun, view->index, ctx, diag)) return false;
+    } else {
+      z_x64_emit_mov_eax_u32(text, 0);
+    }
+    z_x64_emit_mov_rcx_from_rax(text, true);
+    if (view->right) {
+      z_x64_emit_push_reg64(text, 1);
+      if (!machx64_emit_value(text, fun, view->right, ctx, diag)) return false;
+      z_x64_emit_pop_reg64(text, 1);
+      z_x64_emit_sub_reg_reg(text, 0, 1, true);
+      z_x64_emit_pop_reg64(text, 10);
+    } else {
+      z_x64_emit_pop_rax(text);
+      z_x64_emit_sub_reg_reg(text, 0, 1, true);
+    }
+    z_x64_emit_pop_reg64(text, 8);
+    z_x64_emit_add_reg_reg(text, 8, 1, true);
+    machx64_emit_move_byte_view_pair(text, ptr_reg, len_reg, 8, 0);
+    return true;
+  }
+  if (!machx64_emit_byte_view_ptr(text, fun, view, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  if (!machx64_emit_byte_view_len(text, fun, view, ctx, diag)) return false;
+  if (len_reg != 0) z_x64_emit_mov_reg_from_reg(text, len_reg, 0, true);
+  z_x64_emit_pop_reg64(text, ptr_reg);
+  return true;
+}
+
 static void machx64_emit_cast_normalize_rax(ZBuf *text, IrTypeKind source, IrTypeKind target) {
   switch (target) {
     case IR_TYPE_BOOL:
@@ -415,10 +473,9 @@ static bool machx64_emit_call_value(ZBuf *text, const IrFunction *fun, const IrV
     abi_slots += byte_view ? 2u : 1u;
     if (abi_slots > 6) return machx64_diag_at(diag, "direct x86_64 Mach-O call supports at most six ABI argument slots", value->line, value->column, "too many arguments");
     if (byte_view) {
-      if (!machx64_emit_byte_view_ptr(text, fun, arg, ctx, diag)) return false;
+      if (!machx64_emit_byte_view_pair(text, fun, arg, 0, 2, ctx, diag)) return false;
       z_x64_emit_push_rax(text);
-      if (!machx64_emit_byte_view_len(text, fun, arg, ctx, diag)) return false;
-      z_x64_emit_push_rax(text);
+      z_x64_emit_push_reg64(text, 2);
       continue;
     }
     if (!machx64_emit_value(text, fun, arg, ctx, diag)) return false;
@@ -438,16 +495,14 @@ static bool machx64_emit_byte_view_index_load_value(ZBuf *text, const IrFunction
   }
   if (!value->index || !machx64_emit_value(text, fun, value->index, ctx, diag)) return false;
   z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_len(text, fun, value->left, ctx, diag)) return false;
-  z_x64_emit_mov_rcx_from_rax(text, false);
+  if (!machx64_emit_byte_view_pair(text, fun, value->left, 8, 1, ctx, diag)) return false;
   z_x64_emit_pop_rax(text);
   z_x64_emit_cmp_rax_rcx(text, false);
   size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
   z_x64_emit_ud2(text);
   z_x64_patch_rel32(text, ok_patch, text->len);
-  z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_ptr(text, fun, value->left, ctx, diag)) return false;
-  z_x64_emit_pop_reg64(text, 1);
+  z_x64_emit_mov_rcx_from_rax(text, false);
+  z_x64_emit_mov_reg_from_reg(text, 0, 8, true);
   z_x64_emit_add_rax_rcx(text, true);
   z_x64_emit_movzx_reg32_ptr_reg_u8(text, 0, 0);
   return true;
@@ -455,14 +510,10 @@ static bool machx64_emit_byte_view_index_load_value(ZBuf *text, const IrFunction
 
 static bool machx64_emit_byte_copy_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
   if (!value->left || !value->right) return machx64_diag_at(diag, "direct x86_64 Mach-O byte copy requires source and destination byte views", value->line, value->column, "missing byte view");
-  if (!machx64_emit_byte_view_ptr(text, fun, value->left, ctx, diag)) return false;
+  if (!machx64_emit_byte_view_pair(text, fun, value->left, 0, 2, ctx, diag)) return false;
   z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_len(text, fun, value->left, ctx, diag)) return false;
-  z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_ptr(text, fun, value->right, ctx, diag)) return false;
-  z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_len(text, fun, value->right, ctx, diag)) return false;
-  z_x64_emit_pop_reg64(text, 7);
+  z_x64_emit_push_reg64(text, 2);
+  if (!machx64_emit_byte_view_pair(text, fun, value->right, 7, 0, ctx, diag)) return false;
   z_x64_emit_pop_reg64(text, 1);
   z_x64_emit_pop_reg64(text, 6);
   z_x64_emit_byte_copy_min_loop(text);
@@ -473,11 +524,7 @@ static bool machx64_emit_byte_fill_value(ZBuf *text, const IrFunction *fun, cons
   if (!value->left || !value->right) return machx64_diag_at(diag, "direct x86_64 Mach-O byte fill requires a fill byte and destination byte view", value->line, value->column, "missing byte fill input");
   if (!machx64_emit_value(text, fun, value->left, ctx, diag)) return false;
   z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_ptr(text, fun, value->right, ctx, diag)) return false;
-  z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_len(text, fun, value->right, ctx, diag)) return false;
-  z_x64_emit_mov_rdx_from_rax(text);
-  z_x64_emit_pop_reg64(text, 7);
+  if (!machx64_emit_byte_view_pair(text, fun, value->right, 7, 2, ctx, diag)) return false;
   z_x64_emit_pop_reg64(text, 9);
   z_x64_emit_byte_fill_loop(text);
   return true;
@@ -485,20 +532,18 @@ static bool machx64_emit_byte_fill_value(ZBuf *text, const IrFunction *fun, cons
 
 static bool machx64_emit_byte_view_eq_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
   if (!value->left || !value->right) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view equality requires two byte views", value->line, value->column, "missing byte view");
-  if (!machx64_emit_byte_view_len(text, fun, value->left, ctx, diag)) return false;
-  z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_len(text, fun, value->right, ctx, diag)) return false;
-  z_x64_emit_pop_reg64(text, 1);
-  z_x64_emit_cmp_reg_reg(text, 1, 0, false);
+  if (!machx64_emit_byte_view_pair(text, fun, value->left, 8, 10, ctx, diag)) return false;
+  z_x64_emit_push_reg64(text, 8);
+  z_x64_emit_push_reg64(text, 10);
+  if (!machx64_emit_byte_view_pair(text, fun, value->right, 9, 0, ctx, diag)) return false;
+  z_x64_emit_pop_reg64(text, 10);
+  z_x64_emit_cmp_reg_reg(text, 10, 0, false);
   size_t same_len = z_x64_emit_jcc32_placeholder(text, 0x84);
+  z_x64_emit_pop_reg64(text, 8);
   z_x64_emit_mov_eax_u32(text, 0);
   size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
   z_x64_patch_rel32(text, same_len, text->len);
-  z_x64_emit_mov_reg_from_rax(text, 10, true);
-  if (!machx64_emit_byte_view_ptr(text, fun, value->left, ctx, diag)) return false;
-  z_x64_emit_mov_reg_from_rax(text, 8, true);
-  if (!machx64_emit_byte_view_ptr(text, fun, value->right, ctx, diag)) return false;
-  z_x64_emit_mov_r9_from_rax(text);
+  z_x64_emit_pop_reg64(text, 8);
   z_x64_emit_byte_eq_loop(text);
   z_x64_patch_rel32(text, end, text->len);
   return true;
@@ -582,11 +627,7 @@ static bool machx64_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr
 
 static bool machx64_emit_world_write(ZBuf *text, const IrFunction *fun, const IrInstr *instr, MachOEmitContext *ctx, ZDiag *diag) {
   if (!instr || !instr->value) return machx64_diag_at(diag, "direct x86_64 Mach-O World write requires bytes", instr ? instr->line : 1, instr ? instr->column : 1, "missing byte view");
-  if (!machx64_emit_byte_view_ptr(text, fun, instr->value, ctx, diag)) return false;
-  z_x64_emit_push_rax(text);
-  if (!machx64_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
-  z_x64_emit_mov_rdx_from_rax(text);
-  z_x64_emit_pop_reg64(text, 6);
+  if (!machx64_emit_byte_view_pair(text, fun, instr->value, 6, 2, ctx, diag)) return false;
   z_x64_emit_mov_reg_u32(text, 7, instr->field_offset == 2 ? 2u : 1u);
   size_t patch = z_x64_emit_call32_placeholder(text);
   z_x64_emit_test_rax_rax(text, false);
@@ -597,16 +638,9 @@ static bool machx64_emit_world_write(ZBuf *text, const IrFunction *fun, const Ir
 }
 
 static bool machx64_emit_local_set_byte_view(ZBuf *text, const IrFunction *fun, const IrInstr *instr, MachOEmitContext *ctx, ZDiag *diag) {
-  if (instr->value && instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_BYTE_VIEW) {
-    if (!machx64_emit_value(text, fun, instr->value, ctx, diag)) return false;
-    machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 0, true);
-    machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 2, 8, true);
-    return true;
-  }
-  if (!machx64_emit_byte_view_ptr(text, fun, instr->value, ctx, diag)) return false;
+  if (!machx64_emit_byte_view_pair(text, fun, instr->value, 0, 2, ctx, diag)) return false;
   machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 0, true);
-  if (!machx64_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
-  machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 8, false);
+  machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 2, 8, false);
   return true;
 }
 
@@ -621,10 +655,9 @@ static bool machx64_emit_local_set_maybe_byte_view(ZBuf *text, const IrFunction 
       machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 16, false);
       return true;
     }
-    if (!machx64_emit_byte_view_ptr(text, fun, instr->value->left, ctx, diag)) return false;
+    if (!machx64_emit_byte_view_pair(text, fun, instr->value->left, 0, 2, ctx, diag)) return false;
     machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 8, true);
-    if (!machx64_emit_byte_view_len(text, fun, instr->value->left, ctx, diag)) return false;
-    machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 16, false);
+    machx64_emit_store_local_slot_from_reg(text, fun, instr->local_index, 2, 16, false);
     return true;
   }
   if (instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
@@ -752,11 +785,7 @@ static bool machx64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr 
         if (instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_BYTE_VIEW) {
           if (!machx64_emit_value(text, fun, instr->value, ctx, diag)) return false;
         } else {
-          if (!machx64_emit_byte_view_ptr(text, fun, instr->value, ctx, diag)) return false;
-          z_x64_emit_push_rax(text);
-          if (!machx64_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
-          z_x64_emit_mov_rdx_from_rax(text);
-          z_x64_emit_pop_rax(text);
+          if (!machx64_emit_byte_view_pair(text, fun, instr->value, 0, 2, ctx, diag)) return false;
         }
         z_x64_emit_epilogue(text);
         return true;
@@ -770,11 +799,7 @@ static bool machx64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr 
             z_x64_emit_xor_reg_reg(text, 2, true);
             z_x64_emit_xor_ecx_ecx(text);
           } else {
-            if (!machx64_emit_byte_view_ptr(text, fun, instr->value->left, ctx, diag)) return false;
-            z_x64_emit_push_rax(text);
-            if (!machx64_emit_byte_view_len(text, fun, instr->value->left, ctx, diag)) return false;
-            z_x64_emit_mov_rcx_from_rax(text, false);
-            z_x64_emit_pop_reg64(text, 2);
+            if (!machx64_emit_byte_view_pair(text, fun, instr->value->left, 2, 1, ctx, diag)) return false;
             z_x64_emit_mov_eax_u32(text, 1);
           }
         } else {

@@ -393,16 +393,28 @@ static void elf_emit_load_local_slot_reg(ZBuf *code, const IrLocal *local, unsig
 
 static bool elf_emit_byte_view_len(ZBuf *code, const IrFunction *fun, const IrValue *view, ElfEmitContext *ctx, ZDiag *diag);
 static bool elf_emit_byte_view_ptr(ZBuf *code, const IrFunction *fun, const IrValue *view, ElfEmitContext *ctx, ZDiag *diag);
+static bool elf_emit_byte_view_pair(ZBuf *code, const IrFunction *fun, const IrValue *view, unsigned ptr_reg, unsigned len_reg, ElfEmitContext *ctx, ZDiag *diag);
 
 static bool elf_emit_json_parse_bytes_call(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
-  if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
-  elf_emit_push_rax(code);
-  if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-  elf_emit_push_rax(code);
-  z_x64_emit_pop_reg64(code, 6);
-  z_x64_emit_pop_reg64(code, 7);
+  if (!elf_emit_byte_view_pair(code, fun, value->left, 7, 6, ctx, diag)) return false;
   size_t patch = z_x64_emit_call32_placeholder(code);
   return z_elf_record_value_runtime_patch(ctx, ELF_RUNTIME_JSON_PARSE_BYTES, patch, diag, value);
+}
+
+static void elf_emit_move_byte_view_pair(ZBuf *code, unsigned ptr_reg, unsigned len_reg, unsigned src_ptr_reg, unsigned src_len_reg) {
+  if (ptr_reg == src_len_reg && len_reg == src_ptr_reg) {
+    z_x64_emit_push_reg64(code, src_ptr_reg);
+    z_x64_emit_mov_reg_from_reg(code, len_reg, src_len_reg, true);
+    z_x64_emit_pop_reg64(code, ptr_reg);
+    return;
+  }
+  if (ptr_reg == src_len_reg) {
+    if (len_reg != src_len_reg) z_x64_emit_mov_reg_from_reg(code, len_reg, src_len_reg, true);
+    if (ptr_reg != src_ptr_reg) z_x64_emit_mov_reg_from_reg(code, ptr_reg, src_ptr_reg, true);
+    return;
+  }
+  if (ptr_reg != src_ptr_reg) z_x64_emit_mov_reg_from_reg(code, ptr_reg, src_ptr_reg, true);
+  if (len_reg != src_len_reg) z_x64_emit_mov_reg_from_reg(code, len_reg, src_len_reg, true);
 }
 
 static bool elf_emit_byte_view_len(ZBuf *code, const IrFunction *fun, const IrValue *view, ElfEmitContext *ctx, ZDiag *diag) {
@@ -496,6 +508,47 @@ static bool elf_emit_byte_view_ptr(ZBuf *code, const IrFunction *fun, const IrVa
     return elf_emit_value(code, fun, view, ctx, diag);
   }
   return elf_diag(diag, "direct ELF64 value is not a supported byte view", view->line, view->column, "unsupported byte view");
+}
+
+static bool elf_emit_byte_view_pair(ZBuf *code, const IrFunction *fun, const IrValue *view, unsigned ptr_reg, unsigned len_reg, ElfEmitContext *ctx, ZDiag *diag) {
+  if (ptr_reg == len_reg) return elf_diag(diag, "direct ELF64 byte-view pair requires distinct destination registers", view ? view->line : 1, view ? view->column : 1, "invalid byte-view registers");
+  if (view && view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) {
+    if (!elf_emit_value(code, fun, view, ctx, diag)) return false;
+    elf_emit_move_byte_view_pair(code, ptr_reg, len_reg, 0, 2);
+    return true;
+  }
+  if (view && view->kind == IR_VALUE_BYTE_SLICE) {
+    if (!view->index && !view->right) return elf_emit_byte_view_pair(code, fun, view->left, ptr_reg, len_reg, ctx, diag);
+    if (!elf_emit_byte_view_pair(code, fun, view->left, 8, 10, ctx, diag)) return false;
+    z_x64_emit_push_reg64(code, 8);
+    z_x64_emit_push_reg64(code, 10);
+    if (view->index) {
+      if (!elf_emit_value(code, fun, view->index, ctx, diag)) return false;
+    } else {
+      z_x64_emit_mov_eax_u32(code, 0);
+    }
+    z_x64_emit_mov_rcx_from_rax(code, true);
+    if (view->right) {
+      z_x64_emit_push_reg64(code, 1);
+      if (!elf_emit_value(code, fun, view->right, ctx, diag)) return false;
+      z_x64_emit_pop_reg64(code, 1);
+      z_x64_emit_sub_reg_reg(code, 0, 1, true);
+      z_x64_emit_pop_reg64(code, 10);
+    } else {
+      z_x64_emit_pop_rax(code);
+      z_x64_emit_sub_reg_reg(code, 0, 1, true);
+    }
+    z_x64_emit_pop_reg64(code, 8);
+    z_x64_emit_add_reg_reg(code, 8, 1, true);
+    elf_emit_move_byte_view_pair(code, ptr_reg, len_reg, 8, 0);
+    return true;
+  }
+  if (!elf_emit_byte_view_ptr(code, fun, view, ctx, diag)) return false;
+  z_x64_emit_push_rax(code);
+  if (!elf_emit_byte_view_len(code, fun, view, ctx, diag)) return false;
+  if (len_reg != 0) z_x64_emit_mov_reg_from_reg(code, len_reg, 0, true);
+  z_x64_emit_pop_reg64(code, ptr_reg);
+  return true;
 }
 
 static bool elf_emit_fs_basic_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
@@ -629,11 +682,9 @@ static bool elf_emit_fs_atomic_write_value(ZBuf *code, const IrFunction *fun, co
       z_x64_emit_test_rax_rax(code, true);
       size_t open_fail = elf_emit_js_placeholder(code);
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->index, ctx, diag)) return false;
+      if (!elf_emit_byte_view_pair(code, fun, value->index, 0, 2, ctx, diag)) return false;
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->index, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      z_x64_emit_mov_rdx_from_rax(code);
+      z_x64_emit_push_reg64(code, 2);
       z_x64_emit_load_rsp_offset_reg(code, 6, 8, true);
       z_x64_emit_load_rsp_offset_reg(code, 7, 16, true);
       z_x64_emit_mov_eax_u32(code, 1);
@@ -697,11 +748,7 @@ static bool elf_emit_fs_file_handle_value(ZBuf *code, const IrFunction *fun, con
       if (value->local_index >= fun->local_len) return elf_diag(diag, "direct ELF64 std.fs.read local is out of range", value->line, value->column, "invalid File");
       elf_emit_load_local_rax(code, fun, value->local_index);
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_mov_rdx_from_rax(code);
-      z_x64_emit_pop_reg64(code, 6);
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 6, 2, ctx, diag)) return false;
       z_x64_emit_pop_reg64(code, 7);
       z_x64_emit_xor_eax_eax(code);
       z_x64_emit_syscall(code);
@@ -719,18 +766,15 @@ static bool elf_emit_fs_file_handle_value(ZBuf *code, const IrFunction *fun, con
       if (value->local_index >= fun->local_len) return elf_diag(diag, "direct ELF64 std.fs.writeAll local is out of range", value->line, value->column, "invalid File");
       elf_emit_load_local_rax(code, fun, value->local_index);
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      z_x64_emit_mov_rdx_from_rax(code);
-      z_x64_emit_pop_reg64(code, 6);
-      z_x64_emit_pop_reg64(code, 7);
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 6, 2, ctx, diag)) return false;
+      z_x64_emit_push_reg64(code, 2);
+      z_x64_emit_load_rsp_offset_reg(code, 7, 8, true);
       z_x64_emit_mov_eax_u32(code, 1);
       z_x64_emit_syscall(code);
       z_x64_emit_pop_reg64(code, 1);
       z_x64_emit_cmp_rax_rcx(code, false);
       z_x64_emit_setcc_al_to_bool(code, 0x94);
+      z_x64_emit_add_rsp(code, 8);
       if (value->type == IR_TYPE_I64) {
         z_x64_emit_test_rax_rax(code, false);
         size_t success = z_x64_emit_jcc32_placeholder(code, 0x85);
@@ -752,11 +796,7 @@ static bool elf_emit_fs_path_io_value(ZBuf *code, const IrFunction *fun, const I
       z_x64_emit_test_rax_rax(code, true);
       size_t open_fail = elf_emit_js_placeholder(code);
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_mov_rdx_from_rax(code);
-      z_x64_emit_pop_reg64(code, 6);
+      if (!elf_emit_byte_view_pair(code, fun, value->right, 6, 2, ctx, diag)) return false;
       z_x64_emit_pop_reg64(code, 7);
       z_x64_emit_xor_eax_eax(code);
       z_x64_emit_syscall(code);
@@ -775,11 +815,7 @@ static bool elf_emit_fs_path_io_value(ZBuf *code, const IrFunction *fun, const I
       z_x64_emit_test_rax_rax(code, true);
       size_t open_fail = elf_emit_js_placeholder(code);
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_mov_rdx_from_rax(code);
-      z_x64_emit_pop_reg64(code, 6);
+      if (!elf_emit_byte_view_pair(code, fun, value->right, 6, 2, ctx, diag)) return false;
       z_x64_emit_pop_reg64(code, 7);
       z_x64_emit_mov_eax_u32(code, 1);
       z_x64_emit_syscall(code);
@@ -821,14 +857,12 @@ static bool elf_emit_json_value(ZBuf *code, const IrFunction *fun, const IrValue
 static bool elf_emit_http_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
   switch (value->kind) {
     case IR_VALUE_HTTP_FETCH: {
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 0, 2, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
+      z_x64_emit_push_reg64(code, 2);
+      if (!elf_emit_byte_view_pair(code, fun, value->right, 0, 2, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
-      elf_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
-      elf_emit_push_rax(code);
+      z_x64_emit_push_reg64(code, 2);
       if (!elf_emit_value(code, fun, value->index, ctx, diag)) return false;
       elf_emit_push_rax(code);
       z_x64_emit_pop_reg64(code, 8);
@@ -848,24 +882,21 @@ static bool elf_emit_http_value(ZBuf *code, const IrFunction *fun, const IrValue
       return z_elf_record_value_runtime_patch(ctx, elf_runtime_helper_for_value(value->kind), patch, diag, value);
     }
     case IR_VALUE_HTTP_RESPONSE_LEN: case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN: case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET: {
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 0, 2, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-      elf_emit_push_rax(code);
+      z_x64_emit_push_reg64(code, 2);
       z_x64_emit_pop_reg64(code, 6);
       z_x64_emit_pop_reg64(code, 7);
       size_t patch = z_x64_emit_call32_placeholder(code);
       return z_elf_record_value_runtime_patch(ctx, elf_runtime_helper_for_value(value->kind), patch, diag, value);
     }
     case IR_VALUE_HTTP_HEADER_VALUE: {
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 0, 2, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
+      z_x64_emit_push_reg64(code, 2);
+      if (!elf_emit_byte_view_pair(code, fun, value->right, 0, 2, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
-      elf_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
-      elf_emit_push_rax(code);
+      z_x64_emit_push_reg64(code, 2);
       z_x64_emit_pop_reg64(code, 1);
       z_x64_emit_pop_reg64(code, 2);
       z_x64_emit_pop_reg64(code, 6);
@@ -940,10 +971,9 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
         unsigned slots = param->type == IR_TYPE_BYTE_VIEW ? 2 : 1;
         if (abi_slots + slots > 6) return elf_diag(diag, "direct ELF64 call supports at most six ABI argument slots", value->line, value->column, "too many arguments");
         if (param->type == IR_TYPE_BYTE_VIEW) {
-          if (!elf_emit_byte_view_ptr(code, fun, value->args[i], ctx, diag)) return false;
+          if (!elf_emit_byte_view_pair(code, fun, value->args[i], 0, 2, ctx, diag)) return false;
           elf_emit_push_rax(code);
-          if (!elf_emit_byte_view_len(code, fun, value->args[i], ctx, diag)) return false;
-          elf_emit_push_rax(code);
+          z_x64_emit_push_reg64(code, 2);
         } else {
           if (!elf_emit_value(code, fun, value->args[i], ctx, diag)) return false;
           elf_emit_push_rax(code);
@@ -1117,11 +1147,7 @@ static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const Ir
   switch (value->kind) {
     case IR_VALUE_CRC32_BYTES: {
       if (!value->left) return elf_diag(diag, "direct ELF64 CRC32 requires a byte view", value->line, value->column, "missing byte view");
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_mov_r9_from_rax(code);
-      z_x64_emit_pop_reg64(code, 6);
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 6, 9, ctx, diag)) return false;
       z_x64_emit_mov_eax_u32(code, 0xffffffffu);
       z_x64_emit_xor_ecx_ecx(code);
       size_t byte_loop = code->len;
@@ -1150,14 +1176,10 @@ static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const Ir
     }
     case IR_VALUE_BYTE_COPY: {
       if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 byte copy requires source and destination byte views", value->line, value->column, "missing byte view");
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 0, 2, ctx, diag)) return false;
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_pop_reg64(code, 7);
+      z_x64_emit_push_reg64(code, 2);
+      if (!elf_emit_byte_view_pair(code, fun, value->right, 7, 0, ctx, diag)) return false;
       z_x64_emit_pop_reg64(code, 1);
       z_x64_emit_pop_reg64(code, 6);
       z_x64_emit_byte_copy_min_loop(code);
@@ -1167,31 +1189,25 @@ static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const Ir
       if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 byte fill requires a fill byte and destination byte view", value->line, value->column, "missing byte fill input");
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_mov_rdx_from_rax(code);
-      z_x64_emit_pop_reg64(code, 7);
+      if (!elf_emit_byte_view_pair(code, fun, value->right, 7, 2, ctx, diag)) return false;
       z_x64_emit_pop_reg64(code, 9);
       z_x64_emit_byte_fill_loop(code);
       return true;
     }
     case IR_VALUE_BYTE_VIEW_EQ: {
       if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 byte-view equality requires two byte views", value->line, value->column, "missing byte view");
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_pop_reg64(code, 1);
-      z_x64_emit_cmp_reg_reg(code, 1, 0, false);
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 8, 10, ctx, diag)) return false;
+      z_x64_emit_push_reg64(code, 8);
+      z_x64_emit_push_reg64(code, 10);
+      if (!elf_emit_byte_view_pair(code, fun, value->right, 9, 0, ctx, diag)) return false;
+      z_x64_emit_pop_reg64(code, 10);
+      z_x64_emit_cmp_reg_reg(code, 10, 0, false);
       size_t same_len = z_x64_emit_jcc32_placeholder(code, 0x84);
+      z_x64_emit_pop_reg64(code, 8);
       z_x64_emit_mov_eax_u32(code, 0);
       size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
       z_x64_patch_rel32(code, same_len, code->len);
-      z_x64_emit_mov_reg_from_rax(code, 10, true);
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_mov_reg_from_rax(code, 8, true);
-      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
-      z_x64_emit_mov_r9_from_rax(code);
+      z_x64_emit_pop_reg64(code, 8);
       z_x64_emit_byte_eq_loop(code);
       z_x64_patch_rel32(code, end, code->len);
       return true;
@@ -1212,16 +1228,14 @@ static bool elf_emit_byte_index_value(ZBuf *code, const IrFunction *fun, const I
       }
       if (!value->index || !elf_emit_value(code, fun, value->index, ctx, diag)) return false;
       z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_mov_rcx_from_rax(code, false);
+      if (!elf_emit_byte_view_pair(code, fun, value->left, 8, 1, ctx, diag)) return false;
       z_x64_emit_pop_rax(code);
       z_x64_emit_cmp_rax_rcx(code, false);
       size_t ok_patch = z_x64_emit_jcc32_placeholder(code, 0x82);
       z_x64_emit_ud2(code);
       z_x64_patch_rel32(code, ok_patch, code->len);
-      z_x64_emit_push_rax(code);
-      if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
-      z_x64_emit_pop_reg64(code, 1);
+      z_x64_emit_mov_rcx_from_rax(code, false);
+      z_x64_emit_mov_reg_from_reg(code, 0, 8, true);
       z_x64_emit_add_rax_rcx(code, true);
       z_x64_emit_movzx_reg32_ptr_reg_u8(code, 0, 0);
       return true;
@@ -1309,12 +1323,7 @@ static bool elf_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr *in
 
 static bool elf_emit_world_write(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag) {
   if (!instr || !instr->value) return elf_diag(diag, "direct ELF64 World write requires bytes", instr ? instr->line : 1, instr ? instr->column : 1, "missing byte view");
-  if (!elf_emit_byte_view_ptr(text, fun, instr->value, ctx, diag)) return false;
-  z_x64_emit_push_rax(text);
-  if (!elf_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
-  z_x64_emit_push_rax(text);
-  z_x64_emit_pop_reg64(text, 2);
-  z_x64_emit_pop_reg64(text, 6);
+  if (!elf_emit_byte_view_pair(text, fun, instr->value, 6, 2, ctx, diag)) return false;
   z_x64_emit_mov_reg_u32(text, 7, instr->field_offset == 2 ? 2 : 1);
   z_x64_emit_mov_eax_u32(text, 1);
   z_x64_emit_syscall(text);
@@ -1358,10 +1367,7 @@ static bool elf_emit_args_get_to_local(ZBuf *text, const IrFunction *fun, const 
 
 static bool elf_emit_env_get_to_local(ZBuf *text, const IrFunction *fun, const IrValue *value, const IrLocal *local, ElfEmitContext *ctx, ZDiag *diag) {
   if (!value || !value->left) return elf_diag(diag, "direct ELF64 std.env.get requires a key", value ? value->line : 1, value ? value->column : 1, "missing key");
-  if (!elf_emit_byte_view_ptr(text, fun, value->left, ctx, diag)) return false;
-  z_x64_emit_mov_r9_from_rax(text);
-  if (!elf_emit_byte_view_len(text, fun, value->left, ctx, diag)) return false;
-  z_x64_emit_mov_reg_from_reg(text, 10, 0, true);
+  if (!elf_emit_byte_view_pair(text, fun, value->left, 9, 10, ctx, diag)) return false;
 
   if (ctx && ctx->seed_main_process_args) {
     z_x64_emit_push_reg64(text, 13);
@@ -1522,19 +1528,17 @@ static bool elf_emit_byte_view_local_set(ZBuf *text, const IrFunction *fun, cons
     elf_emit_store_local_slot_reg(text, local, 8, 2, true);
     return true;
   }
-  if (!elf_emit_byte_view_ptr(text, fun, instr->value, ctx, diag)) return false;
-  elf_emit_store_local_slot_rax(text, local, 0);
-  if (!elf_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
-  elf_emit_store_local_slot_rax(text, local, 8);
+  if (!elf_emit_byte_view_pair(text, fun, instr->value, 0, 2, ctx, diag)) return false;
+  elf_emit_store_local_slot_reg(text, local, 0, 0, true);
+  elf_emit_store_local_slot_reg(text, local, 8, 2, true);
   return true;
 }
 
 static bool elf_emit_alloc_local_set(ZBuf *text, const IrFunction *fun, const IrInstr *instr, const IrLocal *local, ElfEmitContext *ctx, ZDiag *diag) {
   if (!instr->value || instr->value->kind != IR_VALUE_FIXED_BUF_ALLOC) return elf_diag(diag, "direct ELF64 FixedBufAlloc local requires std.mem.fixedBufAlloc", instr->line, instr->column, "unsupported allocator initializer");
-  if (!elf_emit_byte_view_ptr(text, fun, instr->value->left, ctx, diag)) return false;
-  elf_emit_store_local_slot_rax(text, local, 0);
-  if (!elf_emit_byte_view_len(text, fun, instr->value->left, ctx, diag)) return false;
-  elf_emit_store_local_slot_reg(text, local, 8, 0, false);
+  if (!elf_emit_byte_view_pair(text, fun, instr->value->left, 0, 2, ctx, diag)) return false;
+  elf_emit_store_local_slot_reg(text, local, 0, 0, true);
+  elf_emit_store_local_slot_reg(text, local, 8, 2, false);
   z_x64_emit_mov_eax_u32(text, 0);
   elf_emit_store_local_slot_reg(text, local, 12, 0, false);
   return true;
@@ -1542,12 +1546,11 @@ static bool elf_emit_alloc_local_set(ZBuf *text, const IrFunction *fun, const Ir
 
 static bool elf_emit_vec_local_set(ZBuf *text, const IrFunction *fun, const IrInstr *instr, const IrLocal *local, ElfEmitContext *ctx, ZDiag *diag) {
   if (!instr->value || instr->value->kind != IR_VALUE_VEC_INIT) return elf_diag(diag, "direct ELF64 Vec local requires std.mem.vec", instr->line, instr->column, "unsupported Vec initializer");
-  if (!elf_emit_byte_view_ptr(text, fun, instr->value->left, ctx, diag)) return false;
-  elf_emit_store_local_slot_rax(text, local, 0);
+  if (!elf_emit_byte_view_pair(text, fun, instr->value->left, 0, 2, ctx, diag)) return false;
+  elf_emit_store_local_slot_reg(text, local, 0, 0, true);
+  elf_emit_store_local_slot_reg(text, local, 12, 2, false);
   z_x64_emit_mov_eax_u32(text, 0);
   elf_emit_store_local_slot_reg(text, local, 8, 0, false);
-  if (!elf_emit_byte_view_len(text, fun, instr->value->left, ctx, diag)) return false;
-  elf_emit_store_local_slot_reg(text, local, 12, 0, false);
   return true;
 }
 
@@ -1649,10 +1652,9 @@ static bool elf_emit_maybe_byte_view_local_set(ZBuf *text, const IrFunction *fun
       elf_emit_store_local_slot_reg(text, local, 16, 0, false);
       return true;
     }
-    if (!elf_emit_byte_view_ptr(text, fun, instr->value->left, ctx, diag)) return false;
+    if (!elf_emit_byte_view_pair(text, fun, instr->value->left, 0, 2, ctx, diag)) return false;
     elf_emit_store_local_slot_reg(text, local, 8, 0, true);
-    if (!elf_emit_byte_view_len(text, fun, instr->value->left, ctx, diag)) return false;
-    elf_emit_store_local_slot_reg(text, local, 16, 0, false);
+    elf_emit_store_local_slot_reg(text, local, 16, 2, false);
     return true;
   }
   if (instr->value && instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
@@ -1784,11 +1786,7 @@ static bool elf_emit_terminal_instr(ZBuf *text, const IrFunction *fun, const IrI
         if (instr->value->kind == IR_VALUE_CALL && instr->value->type == IR_TYPE_BYTE_VIEW) {
           if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
         } else {
-          if (!elf_emit_byte_view_ptr(text, fun, instr->value, ctx, diag)) return false;
-          z_x64_emit_push_rax(text);
-          if (!elf_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
-          z_x64_emit_mov_rdx_from_rax(text);
-          z_x64_emit_pop_rax(text);
+          if (!elf_emit_byte_view_pair(text, fun, instr->value, 0, 2, ctx, diag)) return false;
         }
         elf_emit_epilogue(text, fun, ctx);
         return true;
@@ -1802,11 +1800,7 @@ static bool elf_emit_terminal_instr(ZBuf *text, const IrFunction *fun, const IrI
             z_x64_emit_xor_reg_reg(text, 2, true);
             z_x64_emit_xor_ecx_ecx(text);
           } else {
-            if (!elf_emit_byte_view_ptr(text, fun, instr->value->left, ctx, diag)) return false;
-            z_x64_emit_push_rax(text);
-            if (!elf_emit_byte_view_len(text, fun, instr->value->left, ctx, diag)) return false;
-            z_x64_emit_mov_rcx_from_rax(text, false);
-            z_x64_emit_pop_reg64(text, 2);
+            if (!elf_emit_byte_view_pair(text, fun, instr->value->left, 2, 1, ctx, diag)) return false;
             z_x64_emit_mov_eax_u32(text, 1);
           }
         } else {
