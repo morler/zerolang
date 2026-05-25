@@ -91,7 +91,7 @@ typedef struct {
 typedef struct {
   char *from;
   char *to;
-  const char *kind;
+  char *kind;
   ZProgramGraphEdgeTarget target;
   size_t order;
 } ZProgramGraphEdge;

@@ -35,6 +35,7 @@ zero test conformance/native/pass/test-blocks.0
 zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
 zero graph --json examples/systems-package
 zero graph dump examples/hello.0
+zero graph dump --out .zero/out/hello.graph examples/hello.0
 zero size --json examples/point.0
 zero ship --json --target linux-musl-x64 examples/hello.0 --out .zero/ship/hello
 zero doctor --json
@@ -59,7 +60,7 @@ Use `--json` when another tool will read the result. Text output is for people.
 | --- | --- |
 | `zero check --json` | Diagnostics with code, span, expected/actual details, help, repair metadata, and `targetReadiness` for the selected target/emit kind. |
 | `zero graph --json` | Modules, public symbols, capabilities, static facts, helper use, and nested `programGraph`. |
-| `zero graph dump --json` | The bare deterministic ProgramGraph with `graphHash`, validation, counts, nodes, and edges. |
+| `zero graph dump --json` | The bare deterministic ProgramGraph with `graphHash`, validation, counts, nodes, and edges. Use `--out <file>` to write the dump artifact. |
 | `zero dev --json` | A watch plan for changed source, manifest, package-lock, and generated-binding inputs. |
 | `zero dev --json --trace` | Adds phase timing, cache hit/miss facts, diagnostics passthrough, and `interfaceFingerprints`. |
 | `zero time --json` | Compiler phase timing plus `interfaceFingerprints` and incremental invalidation facts. |
@@ -147,7 +148,7 @@ zero build [--emit exe|obj] [--target <target>] [--profile dev|release] [--out <
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
 zero fmt [--check] <input>
-zero graph [dump] [--json] [--target <target>] <input>
+zero graph [dump] [--json] [--target <target>] [--out <file>] <input>
 zero doc [--json] [--target <target>] <input>
 zero size [--json] [--target <target>] [--out <artifact>] <input>
 zero explain [--json] <diagnostic-code>

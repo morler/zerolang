@@ -1,4 +1,4 @@
-#include "program_graph.h"
+#include "program_graph_format.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -36,8 +36,13 @@ size_t z_grow_capacity(size_t current, size_t required, size_t initial) {
 
 char *z_strdup(const char *text) {
   size_t len = strlen(text ? text : "");
+  return z_strndup(text ? text : "", len);
+}
+
+char *z_strndup(const char *text, size_t len) {
   char *copy = z_checked_malloc(len + 1);
   memcpy(copy, text ? text : "", len + 1);
+  copy[len] = 0;
   return copy;
 }
 
@@ -89,7 +94,7 @@ static void set_node(ZProgramGraphNode *node, const char *id, ZProgramGraphNodeK
 static void set_edge(ZProgramGraphEdge *edge, const char *from, const char *to, const char *kind, ZProgramGraphEdgeTarget target, size_t order) {
   edge->from = z_strdup(from);
   edge->to = z_strdup(to);
-  edge->kind = kind;
+  edge->kind = z_strdup(kind);
   edge->target = target;
   edge->order = order;
 }
@@ -115,9 +120,39 @@ int main(void) {
 
   free(graph.edges[0].to);
   graph.edges[0].to = z_strdup(graph.nodes[1].symbol_id);
+  z_program_graph_finalize_identities(&graph);
   expect(z_program_graph_validate(&graph, &validation), "valid symbol target failed validation");
   expect(validation.state == Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID, "valid graph reported wrong state");
 
+  ZBuf dump;
+  zbuf_init(&dump);
+  z_program_graph_append_dump(&dump, &graph, &validation);
+  ZProgramGraph parsed;
+  ZDiag diag = {0};
+  expect(z_program_graph_parse_dump(dump.data, &parsed, &diag), diag.message);
+  ZProgramGraphValidation parsed_validation = {0};
+  expect(z_program_graph_validate(&parsed, &parsed_validation), "parsed graph failed validation");
+  ZBuf redump;
+  zbuf_init(&redump);
+  z_program_graph_append_dump(&redump, &parsed, &parsed_validation);
+  expect(strcmp(dump.data, redump.data) == 0, "parsed graph dump was not byte-stable");
+
+  char *saved_hash = parsed.nodes[1].node_hash;
+  parsed.nodes[1].node_hash = z_strdup("nodehash:0000000000000000");
+  ZBuf corrupted;
+  zbuf_init(&corrupted);
+  z_program_graph_append_dump(&corrupted, &parsed, &parsed_validation);
+  ZProgramGraph rejected;
+  ZDiag rejected_diag = {0};
+  expect(!z_program_graph_parse_dump(corrupted.data, &rejected, &rejected_diag), "corrupt node hash parsed");
+  expect(strstr(rejected_diag.message, "identities") != NULL, "corrupt node hash reported wrong diagnostic");
+  free(parsed.nodes[1].node_hash);
+  parsed.nodes[1].node_hash = saved_hash;
+
+  zbuf_free(&corrupted);
+  zbuf_free(&redump);
+  z_program_graph_free(&parsed);
+  zbuf_free(&dump);
   z_program_graph_free(&graph);
   puts("program graph smoke ok");
   return 0;
