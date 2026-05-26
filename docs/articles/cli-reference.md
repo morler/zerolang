@@ -108,6 +108,9 @@ text:
 zero-program-graph-patch v1
 expect graphHash "graph:f76987e99677f1b3"
 set node="node:000013" field="value" expect="hello from zero\n" value="hello patched\n"
+insert node="node:patch001" kind="Literal" parent="node:000009" edge="arg" order="1" type="String" value="again\n"
+rename node="node:000002" expect="main" value="start"
+delete node="node:patch001"
 ```
 
 The header is required. `expect graphHash` is optional but recommended; it
@@ -115,12 +118,20 @@ rejects edits against a different artifact. `set` requires `node`, `field`, and
 `value`; `expect` is optional and rejects the operation when the current field
 value differs.
 
-Editable fields are `name`, `type`, `value`, `public`, `mutable`, `static`,
-`fallible`, and `exportC`. Boolean fields accept only `true` or `false`.
-`name` values must be identifier paths or supported operator tokens. `type`
-values must be valid Zero type syntax. Strings support `\\`, `\"`, `\n`,
-`\r`, `\t`, and `\u00XX` escapes for non-NUL bytes. NUL bytes are not valid
-ProgramGraph patch text.
+Supported operations are `set`, `insert`, `insertEdge`, `replace`, `delete`,
+and `rename`. `insert` creates a node and connects it to a parent node with an
+ordered node edge. `insertEdge` connects existing graph facts across `node`,
+`symbol`, `type`, or `effect` target domains. `replace` updates a node in
+place and can require the current node hash through `expect`. `delete` removes
+an owned subtree and rejects external references into that subtree. `rename`
+updates a node name with an optional current-name precondition.
+
+Editable scalar fields are `name`, `type`, `value`, `public`, `mutable`,
+`static`, `fallible`, and `exportC`. Boolean fields accept only `true` or
+`false`. `name` values must be identifier paths or supported operator tokens.
+`type` values must be valid Zero type syntax. Strings support `\\`, `\"`,
+`\n`, `\r`, `\t`, and `\u00XX` escapes for non-NUL bytes. NUL bytes are not
+valid ProgramGraph patch text.
 
 ## Build Outputs
 

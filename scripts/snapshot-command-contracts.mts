@@ -333,6 +333,16 @@ const graphRoundtripViewPath = join(outDir, "hello.roundtrip.0");
 const graphArtifactRoundtripPath = join(outDir, "hello.roundtrip.program-graph");
 const graphPatchPath = join(outDir, "hello.program-graph.patch");
 const graphPatchedPath = join(outDir, "hello.patched.program-graph");
+const graphPatchInsertPath = join(outDir, "hello.insert.program-graph.patch");
+const graphInsertedPath = join(outDir, "hello.insert.program-graph");
+const graphPatchDeletePath = join(outDir, "hello.delete.program-graph.patch");
+const graphDeletedPath = join(outDir, "hello.delete.program-graph");
+const graphPatchReplacePath = join(outDir, "hello.replace.program-graph.patch");
+const graphReplacedPath = join(outDir, "hello.replace.program-graph");
+const graphPatchInsertEdgePath = join(outDir, "hello.insert-edge.program-graph.patch");
+const graphInsertedEdgePath = join(outDir, "hello.insert-edge.program-graph");
+const graphPatchRenamePath = join(outDir, "hello.rename.program-graph.patch");
+const graphRenamedPath = join(outDir, "hello.rename.program-graph");
 const graphUncheckedPatchPath = join(outDir, "hello.unchecked.program-graph.patch");
 const graphUncheckedPath = join(outDir, "hello.unchecked.program-graph");
 const graphBorrowDumpPath = join(outDir, "borrow.program-graph");
@@ -369,6 +379,16 @@ rmSync(graphRoundtripViewPath, { force: true });
 rmSync(graphArtifactRoundtripPath, { force: true });
 rmSync(graphPatchPath, { force: true });
 rmSync(graphPatchedPath, { force: true });
+rmSync(graphPatchInsertPath, { force: true });
+rmSync(graphInsertedPath, { force: true });
+rmSync(graphPatchDeletePath, { force: true });
+rmSync(graphDeletedPath, { force: true });
+rmSync(graphPatchReplacePath, { force: true });
+rmSync(graphReplacedPath, { force: true });
+rmSync(graphPatchInsertEdgePath, { force: true });
+rmSync(graphInsertedEdgePath, { force: true });
+rmSync(graphPatchRenamePath, { force: true });
+rmSync(graphRenamedPath, { force: true });
 rmSync(graphUncheckedPatchPath, { force: true });
 rmSync(graphUncheckedPath, { force: true });
 rmSync(graphBorrowDumpPath, { force: true });
@@ -481,6 +501,88 @@ assert.equal(graphPatchJson.saved.path, graphPatchedPath);
 assert.equal(zero(["graph", "validate", graphPatchedPath]).stdout, "program graph ok\n");
 assert.match(zero(["graph", "view", graphPatchedPath]).stdout, /check world\.out\.write "hello patched\\n"/);
 assert.equal(zero(["graph", "check", graphPatchedPath]).stdout, "program graph check ok\n");
+writeFileSync(graphPatchInsertPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `insert node="node:patch_check" kind="Check" parent="node:000007" edge="statement" order="1" path="examples/hello.0" line="3" column="3"`,
+  `insert node="node:patch_call" kind="MethodCall" parent="node:patch_check" edge="expr" order="0" name="write" type="Void" path="examples/hello.0" line="3" column="25"`,
+  `insert node="node:patch_write" kind="FieldAccess" parent="node:patch_call" edge="left" order="0" name="write" path="examples/hello.0" line="3" column="18"`,
+  `insert node="node:patch_out" kind="FieldAccess" parent="node:patch_write" edge="left" order="0" name="out" path="examples/hello.0" line="3" column="14"`,
+  `insert node="node:patch_world" kind="Identifier" parent="node:patch_out" edge="left" order="0" name="world" path="examples/hello.0" line="3" column="9"`,
+  `insert node="node:patch_lit" kind="Literal" parent="node:patch_call" edge="arg" order="0" type="String" value="second line\\n" path="examples/hello.0" line="3" column="25"`,
+  "",
+].join("\n"));
+const graphInsertPatchJson = json(["graph", "patch", "--json", "--out", graphInsertedPath, graphDumpPath, graphPatchInsertPath]).body;
+assert.equal(graphInsertPatchJson.ok, true);
+assert.equal(graphInsertPatchJson.operationCount, 6);
+assert.equal(graphInsertPatchJson.operations[0].op, "insert");
+assert.equal(graphInsertPatchJson.operations[0].parent, "node:000007");
+assert.equal(graphInsertPatchJson.operations[0].edge, "statement");
+assert.equal(graphInsertPatchJson.operations[0].order, 1);
+assert.equal(graphInsertPatchJson.operations[5].kind, "Literal");
+assert.equal(graphInsertPatchJson.operations[5].type, "String");
+assert.equal(graphInsertPatchJson.operations[5].value, "second line\n");
+assert.equal(graphInsertPatchJson.saved.path, graphInsertedPath);
+const graphInsertedView = zero(["graph", "view", graphInsertedPath]).stdout;
+assert.match(graphInsertedView, /check world\.out\.write "hello from zero\\n"\n  check world\.out\.write "second line\\n"/);
+assert.equal(zero(["graph", "check", graphInsertedPath]).stdout, "program graph check ok\n");
+assert.equal(zero(["graph", "roundtrip", graphInsertedPath]).stdout, "program graph roundtrip ok\n");
+const graphInsertedText = readFileSync(graphInsertedPath, "utf8");
+const graphInsertedCheckLine = graphInsertedText.split("\n").find((line) => line.includes('id="node:patch_check"')) ?? "";
+const graphInsertedCheckHash = graphQuotedField(graphInsertedCheckLine, "nodeHash");
+assert.match(graphInsertedCheckHash, /^nodehash:[0-9a-f]{16}$/);
+writeFileSync(graphPatchDeletePath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphInsertPatchJson.patchedGraphHash}"`,
+  `delete node="node:patch_check" expect="${graphInsertedCheckHash}"`,
+  "",
+].join("\n"));
+const graphDeletePatchJson = json(["graph", "patch", "--json", "--out", graphDeletedPath, graphInsertedPath, graphPatchDeletePath]).body;
+assert.equal(graphDeletePatchJson.ok, true);
+assert.equal(graphDeletePatchJson.operations[0].op, "delete");
+assert.equal(graphDeletePatchJson.operations[0].actual, graphInsertedCheckHash);
+assert.equal(readFileSync(graphDeletedPath, "utf8"), graphDump);
+const graphLiteralNode = graphDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "String");
+assert(graphLiteralNode);
+writeFileSync(graphPatchReplacePath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `replace node="${graphLiteralNode.id}" expect="${graphLiteralNode.nodeHash}" kind="Literal" type="String" value="hello replaced structurally\\n"`,
+  "",
+].join("\n"));
+const graphReplacePatchJson = json(["graph", "patch", "--json", "--out", graphReplacedPath, graphDumpPath, graphPatchReplacePath]).body;
+assert.equal(graphReplacePatchJson.ok, true);
+assert.equal(graphReplacePatchJson.operations[0].op, "replace");
+assert.equal(graphReplacePatchJson.operations[0].actual, graphLiteralNode.nodeHash);
+assert.equal(graphReplacePatchJson.operations[0].value, "hello replaced structurally\n");
+assert.match(zero(["graph", "view", graphReplacedPath]).stdout, /check world\.out\.write "hello replaced structurally\\n"/);
+writeFileSync(graphPatchInsertEdgePath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `insertEdge from="${graphLiteralNode.id}" to="${graphLiteralNode.typeId}" edge="resolvedType" target="type" order="0"`,
+  "",
+].join("\n"));
+const graphInsertEdgePatchJson = json(["graph", "patch", "--json", "--out", graphInsertedEdgePath, graphDumpPath, graphPatchInsertEdgePath]).body;
+assert.equal(graphInsertEdgePatchJson.ok, true);
+assert.equal(graphInsertEdgePatchJson.operations[0].op, "insertEdge");
+assert.equal(graphInsertEdgePatchJson.operations[0].from, graphLiteralNode.id);
+assert.equal(graphInsertEdgePatchJson.operations[0].to, graphLiteralNode.typeId);
+assert.equal(graphInsertEdgePatchJson.operations[0].target, "type");
+assert.equal(zero(["graph", "validate", graphInsertedEdgePath]).stdout, "program graph ok\n");
+writeFileSync(graphPatchRenamePath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `rename node="node:000002" expect="main" value="start"`,
+  "",
+].join("\n"));
+const graphRenamePatchJson = json(["graph", "patch", "--json", "--out", graphRenamedPath, graphDumpPath, graphPatchRenamePath]).body;
+assert.equal(graphRenamePatchJson.ok, true);
+assert.equal(graphRenamePatchJson.operations[0].op, "rename");
+assert.equal(graphRenamePatchJson.operations[0].actual, "main");
+assert.match(zero(["graph", "view", graphRenamedPath]).stdout, /pub fn start Void world World !/);
+const graphRenamedCheck = json(["graph", "check", "--json", graphRenamedPath], { allowFailure: true });
+assert.notEqual(graphRenamedCheck.code, 0);
+assert.equal(graphRenamedCheck.body.diagnostics[0].message, "missing main function");
 writeFileSync(graphUncheckedPatchPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,

@@ -1,6 +1,7 @@
 #include "program_graph_compare.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static bool compare_text_eq(const char *left, const char *right) {
@@ -226,21 +227,36 @@ static bool compare_edges(const ZProgramGraph *left, const ZProgramGraph *right,
   if (left_count != right_count) {
     return compare_fail(out, "GRC006", "edge count differs", "edges", 0, 0, left_count, right_count);
   }
+  bool *matched = z_checked_calloc(right_count ? right_count : 1, sizeof(bool));
   for (size_t i = 0; i < left_count; i++) {
     size_t left_index = compare_nth_semantic_edge(left, i);
-    size_t right_index = compare_nth_semantic_edge(right, i);
     const ZProgramGraphEdge *left_edge = &left->edges[left_index];
-    const ZProgramGraphEdge *right_edge = &right->edges[right_index];
     size_t left_from = compare_semantic_index_for_raw_node(left, compare_node_index_by_id(left, left_edge->from));
-    size_t right_from = compare_semantic_index_for_raw_node(right, compare_node_index_by_id(right, right_edge->from));
     size_t left_to = compare_target_index(left, left_edge);
-    size_t right_to = compare_target_index(right, right_edge);
-    if (left_from != right_from) return compare_fail(out, "GRC007", "edge source differs", "from", left_index, right_index, left_from, right_from);
-    if (left_to != right_to) return compare_fail(out, "GRC008", "edge target differs", "to", left_index, right_index, left_to, right_to);
-    if (!compare_text_eq(left_edge->kind, right_edge->kind)) return compare_fail(out, "GRC009", "edge kind differs", "kind", left_index, right_index, 0, 0);
-    if (left_edge->target != right_edge->target) return compare_fail(out, "GRC010", "edge target domain differs", "target", left_index, right_index, 0, 0);
-    if (left_edge->order != right_edge->order) return compare_fail(out, "GRC011", "edge order differs", "order", left_index, right_index, left_edge->order, right_edge->order);
+    bool found = false;
+    for (size_t j = 0; j < right_count; j++) {
+      if (matched[j]) continue;
+      size_t right_index = compare_nth_semantic_edge(right, j);
+      const ZProgramGraphEdge *right_edge = &right->edges[right_index];
+      size_t right_from = compare_semantic_index_for_raw_node(right, compare_node_index_by_id(right, right_edge->from));
+      size_t right_to = compare_target_index(right, right_edge);
+      if (left_from != right_from ||
+          left_to != right_to ||
+          left_edge->target != right_edge->target ||
+          left_edge->order != right_edge->order ||
+          !compare_text_eq(left_edge->kind, right_edge->kind)) {
+        continue;
+      }
+      matched[j] = true;
+      found = true;
+      break;
+    }
+    if (!found) {
+      free(matched);
+      return compare_fail(out, "GRC007", "edge semantic fact is missing", "edge", left_index, compare_missing_index(), left_from, left_to);
+    }
   }
+  free(matched);
   return true;
 }
 
