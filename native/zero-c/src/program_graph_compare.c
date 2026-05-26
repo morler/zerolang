@@ -53,13 +53,36 @@ static bool compare_is_declared_type_ref(const ZProgramGraph *graph, size_t inde
   return false;
 }
 
+static bool compare_has_module_named(const ZProgramGraph *graph, const char *name) {
+  for (size_t i = 0; graph && name && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind == Z_PROGRAM_GRAPH_NODE_MODULE && compare_text_eq(node->name, name)) return true;
+  }
+  return false;
+}
+
+static bool compare_is_local_import(const ZProgramGraph *graph, size_t index) {
+  if (!graph || index >= graph->node_len) return false;
+  const ZProgramGraphNode *node = &graph->nodes[index];
+  if (node->name && strncmp(node->name, "std.", strlen("std.")) == 0) return false;
+  return node->kind == Z_PROGRAM_GRAPH_NODE_IMPORT && compare_has_module_named(graph, node->name);
+}
+
 static bool compare_skip_node(const ZProgramGraph *graph, size_t index) {
-  return compare_is_declared_type_ref(graph, index);
+  return compare_is_declared_type_ref(graph, index) || compare_is_local_import(graph, index);
 }
 
 static bool compare_skip_edge(const ZProgramGraph *graph, const ZProgramGraphEdge *edge) {
   if (!graph || !edge) return false;
-  if (!compare_edge_kind(edge, "declaredType") || edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE) return false;
+  size_t source = compare_missing_index();
+  for (size_t i = 0; i < graph->node_len; i++) {
+    if (compare_text_eq(graph->nodes[i].id, edge->from)) {
+      source = i;
+      break;
+    }
+  }
+  if (source != compare_missing_index() && compare_skip_node(graph, source)) return true;
+  if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE) return false;
   size_t target = compare_missing_index();
   for (size_t i = 0; i < graph->node_len; i++) {
     if (compare_text_eq(graph->nodes[i].id, edge->to)) {
@@ -232,6 +255,9 @@ bool z_program_graph_semantic_compare(const ZProgramGraph *left, const ZProgramG
   }
   if (left->schema_version != right->schema_version) {
     return compare_fail(out, "GRC012", "schema version differs", "schemaVersion", 0, 0, left->schema_version, right->schema_version);
+  }
+  if (!compare_text_eq(left->module_identity, right->module_identity)) {
+    return compare_fail(out, "GRC013", "module identity differs", "moduleIdentity", 0, 0, 0, 0);
   }
   if (!compare_nodes(left, right, out)) return false;
   if (!compare_edges(left, right, out)) return false;

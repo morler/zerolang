@@ -9323,7 +9323,101 @@ static void graph_roundtrip_replace_path(char **slot, const char *old_path, cons
   *slot = z_strdup(new_path ? new_path : "");
 }
 
-static void graph_roundtrip_relabel_source(SourceInput *roundtrip, const SourceInput *original, const char *temp_path) {
+static void graph_roundtrip_replace_text(char **slot, const char *value) {
+  if (!slot) return;
+  free(*slot);
+  *slot = value ? z_strdup(value) : NULL;
+}
+
+static void graph_roundtrip_clear_string_array(char ***items, size_t *count) {
+  if (!items || !count) return;
+  for (size_t i = 0; *items && i < *count; i++) free((*items)[i]);
+  free(*items);
+  *items = NULL;
+  *count = 0;
+}
+
+static void graph_roundtrip_clear_modules(SourceInput *input) {
+  if (!input) return;
+  for (size_t i = 0; i < input->module_count; i++) {
+    free(input->module_names[i]);
+    free(input->module_paths[i]);
+  }
+  free(input->module_names);
+  free(input->module_paths);
+  input->module_names = NULL;
+  input->module_paths = NULL;
+  input->module_count = 0;
+}
+
+static void graph_roundtrip_copy_source_files(SourceInput *roundtrip, const SourceInput *original) {
+  if (!roundtrip || !original || original->source_file_count == 0) return;
+  graph_roundtrip_clear_string_array(&roundtrip->source_files, &roundtrip->source_file_count);
+  for (size_t i = 0; i < original->source_file_count; i++) {
+    direct_input_push_string(&roundtrip->source_files, &roundtrip->source_file_count, original->source_files[i]);
+  }
+}
+
+static void graph_roundtrip_copy_modules(SourceInput *roundtrip, const SourceInput *original) {
+  if (!roundtrip || !original || original->module_count == 0) return;
+  graph_roundtrip_clear_modules(roundtrip);
+  for (size_t i = 0; i < original->module_count; i++) {
+    direct_input_push_module(roundtrip, original->module_names[i], original->module_paths[i]);
+  }
+}
+
+static void graph_roundtrip_copy_package_metadata(SourceInput *roundtrip, const SourceInput *original) {
+  if (!roundtrip || !original) return;
+  graph_roundtrip_replace_text(&roundtrip->package_root, original->package_root);
+  graph_roundtrip_replace_text(&roundtrip->manifest_path, original->manifest_path);
+  graph_roundtrip_replace_text(&roundtrip->package_name, original->package_name);
+  graph_roundtrip_replace_text(&roundtrip->package_version, original->package_version);
+  graph_roundtrip_replace_text(&roundtrip->lockfile_path, original->lockfile_path);
+  roundtrip->manifest_hash = original->manifest_hash;
+  roundtrip->dependency_graph_hash = original->dependency_graph_hash;
+  roundtrip->lockfile_hash = original->lockfile_hash;
+  roundtrip->allow_missing_main = original->allow_missing_main;
+}
+
+static const char *graph_roundtrip_module_path_for_name(const SourceInput *original, const char *name, size_t name_len) {
+  for (size_t i = 0; original && name && i < original->module_count; i++) {
+    const char *module = original->module_names[i];
+    if (module && strlen(module) == name_len && strncmp(module, name, name_len) == 0) {
+      return original->module_paths[i];
+    }
+  }
+  return NULL;
+}
+
+static const char *graph_roundtrip_module_path_for_view_line(const SourceInput *original, const char *line, size_t line_len) {
+  const char *prefix = "# Module:";
+  size_t prefix_len = strlen(prefix);
+  if (!line || line_len < prefix_len || strncmp(line, prefix, prefix_len) != 0) return NULL;
+  const char *name = line + prefix_len;
+  const char *end = line + line_len;
+  while (name < end && isspace((unsigned char)*name)) name++;
+  while (end > name && isspace((unsigned char)*(end - 1))) end--;
+  return graph_roundtrip_module_path_for_name(original, name, (size_t)(end - name));
+}
+
+static void graph_roundtrip_relabel_source_lines(SourceInput *roundtrip, const SourceInput *original, const char *temp_path, const char *view) {
+  if (!roundtrip || !original) return;
+  const char *current_path = original->source_file ? original->source_file : temp_path;
+  const char *cursor = view ? view : "";
+  for (size_t i = 0; i < roundtrip->source_line_count; i++) {
+    if (!roundtrip->source_line_paths[i] || !temp_path || strcmp(roundtrip->source_line_paths[i], temp_path) != 0) continue;
+    const char *line = cursor;
+    const char *end = cursor;
+    while (*end && *end != '\n') end++;
+    size_t line_len = (size_t)(end - line);
+    const char *module_path = graph_roundtrip_module_path_for_view_line(original, line, line_len);
+    if (module_path && module_path[0]) current_path = module_path;
+    graph_roundtrip_replace_text(&roundtrip->source_line_paths[i], current_path);
+    cursor = *end == '\n' ? end + 1 : end;
+  }
+}
+
+static void graph_roundtrip_relabel_source(SourceInput *roundtrip, const SourceInput *original, const char *temp_path, const char *view) {
   const char *source_file = original && original->source_file ? original->source_file : NULL;
   if (!roundtrip || !source_file || !temp_path) return;
   graph_roundtrip_replace_path(&roundtrip->source_file, temp_path, source_file);
@@ -9333,9 +9427,10 @@ static void graph_roundtrip_relabel_source(SourceInput *roundtrip, const SourceI
   for (size_t i = 0; i < roundtrip->module_count; i++) {
     graph_roundtrip_replace_path(&roundtrip->module_paths[i], temp_path, source_file);
   }
-  for (size_t i = 0; i < roundtrip->source_line_count; i++) {
-    graph_roundtrip_replace_path(&roundtrip->source_line_paths[i], temp_path, source_file);
-  }
+  graph_roundtrip_copy_package_metadata(roundtrip, original);
+  graph_roundtrip_copy_source_files(roundtrip, original);
+  graph_roundtrip_copy_modules(roundtrip, original);
+  graph_roundtrip_relabel_source_lines(roundtrip, original, temp_path, view);
 }
 
 static int run_graph_roundtrip_command(const Command *command, SourceInput *input, Program *program, const ZTargetInfo *target, ZDiag *diag) {
@@ -9401,7 +9496,7 @@ static int run_graph_roundtrip_command(const Command *command, SourceInput *inpu
     return 1;
   }
 
-  graph_roundtrip_relabel_source(&roundtrip_input, input, temp_path.data);
+  graph_roundtrip_relabel_source(&roundtrip_input, input, temp_path.data, view.data ? view.data : "");
   z_program_graph_from_program(&roundtrip_input, &roundtrip_program, &roundtrip);
   ZProgramGraphCompare comparison = {0};
   z_program_graph_semantic_compare(&original, &roundtrip, &comparison);

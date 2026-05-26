@@ -2666,11 +2666,14 @@ for (const [name, fixture, patterns] of programGraphViewCoverage) {
 for (const fixture of [
   "conformance/native/pass/open-ended-slices.0",
   "conformance/native/pass/float-char-casts.0",
+  "conformance/native/pass/test-blocks.0",
   "examples/std-math.0",
+  "examples/systems-package",
 ]) {
   const roundtrip = JSON.parse((await execFileAsync(zero, ["graph", "roundtrip", "--json", fixture])).stdout);
   assert.equal(roundtrip.ok, true);
   assert.equal(roundtrip.semanticStable, true);
+  assert.equal(roundtrip.roundtripModuleIdentity, roundtrip.moduleIdentity);
   assert.equal(roundtrip.comparison.ok, true);
   assert.deepEqual(roundtrip.semanticCounts.original, roundtrip.semanticCounts.roundtrip);
 }

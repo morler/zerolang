@@ -1788,7 +1788,7 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
     return program;
   }
 
-  static size_t test_counter = 0;
+  size_t test_counter = 0;
   for (size_t i = 0; i < tree->len; i++) {
     if (tree->items[i].parent != Z_ROW_NO_PARENT) continue;
     const ZRowNode *node = &tree->items[i];
