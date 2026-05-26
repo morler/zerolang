@@ -3,6 +3,6 @@
 
 #include "program_graph.h"
 
-void z_program_graph_seed_size_source_metadata(SourceInput *input, const ZProgramGraph *graph);
+void z_program_graph_seed_source_metadata(SourceInput *input, const ZProgramGraph *graph);
 
 #endif

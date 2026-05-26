@@ -97,7 +97,7 @@ static void graph_size_seed_from_graph(SourceInput *input, const ZProgramGraph *
   }
 }
 
-void z_program_graph_seed_size_source_metadata(SourceInput *input, const ZProgramGraph *graph) {
+void z_program_graph_seed_source_metadata(SourceInput *input, const ZProgramGraph *graph) {
   if (!input || !graph) return;
   free(input->source);
   input->source = z_strdup(graph->graph_hash ? graph->graph_hash : "");
