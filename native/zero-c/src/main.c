@@ -7,6 +7,7 @@
 #include "program_graph_compare.h"
 #include "program_graph_format.h"
 #include "program_graph_import.h"
+#include "program_graph_lower.h"
 #include "program_graph_patch.h"
 #include "program_graph_view.h"
 #include "std_sig.h"
@@ -3303,7 +3304,7 @@ static void print_command_help(const char *command) {
     printf("  dump      print or write only the deterministic ProgramGraph\n");
     printf("  validate  read a ProgramGraph artifact and optionally write its canonical form\n");
     printf("  view      render a ProgramGraph artifact as a generated Zero view\n");
-    printf("  check     typecheck a ProgramGraph artifact through its generated view\n");
+    printf("  check     typecheck a ProgramGraph artifact through direct graph lowering\n");
     printf("  patch     apply checked edits to a ProgramGraph artifact\n");
     printf("  roundtrip compare source graph semantics after generated-view reparse\n");
   } else if (strcmp(command, "doc") == 0) {
@@ -9245,10 +9246,11 @@ static void append_graph_check_json(
   append_json_string(buf, phase ? phase : (ok ? "typecheck" : "unknown"));
   zbuf_append(buf, ", \"target\": ");
   append_json_string(buf, target && target->name ? target->name : "unknown");
+  zbuf_append(buf, ", \"lowering\": \"direct-program-graph\"");
   zbuf_append(buf, ", \"sourcePath\": ");
   append_json_nullable_string(buf, command->out);
   zbuf_append(buf, "},\n  \"diagnostics\": [");
-  if (!ok && diag) append_fix_plan_diagnostic(buf, graph_check_diagnostic_path(command), diag);
+  if (!ok && diag) append_fix_plan_diagnostic(buf, diag->path ? diag->path : graph_check_diagnostic_path(command), diag);
   zbuf_append(buf, "],\n  \"saved\": ");
   append_graph_saved_json(buf, command->out);
   zbuf_append(buf, ",\n  \"view\": ");
@@ -9589,6 +9591,51 @@ static void graph_check_relabel_diag_path(const Command *command, ZDiag *diag) {
   }
 }
 
+typedef enum {
+  GRAPH_CHECK_PHASE_LOWER,
+  GRAPH_CHECK_PHASE_TYPECHECK,
+  GRAPH_CHECK_PHASE_TARGET_READINESS,
+} GraphCheckPhase;
+
+static const char *graph_check_phase_name(GraphCheckPhase phase) {
+  switch (phase) {
+    case GRAPH_CHECK_PHASE_LOWER: return "lower";
+    case GRAPH_CHECK_PHASE_TYPECHECK: return "typecheck";
+    case GRAPH_CHECK_PHASE_TARGET_READINESS: return "target-readiness";
+  }
+  return "unknown";
+}
+
+static bool graph_check_generated_view_for_diag(const Command *command, const ZTargetInfo *target, const char *view, GraphCheckPhase *phase, ZDiag *diag) {
+  ZBuf temp_dir;
+  ZBuf temp_path;
+  zbuf_init(&temp_dir);
+  zbuf_init(&temp_path);
+  if (!graph_temp_path("check", "graph-check.0", &temp_dir, &temp_path, diag) ||
+      !z_write_file(temp_path.data, view ? view : "", diag)) {
+    graph_roundtrip_cleanup(temp_path.data, temp_dir.data);
+    zbuf_free(&temp_dir);
+    zbuf_free(&temp_path);
+    return false;
+  }
+
+  SourceInput checked_input = {0};
+  Program checked_program = {0};
+  bool ok = compile_input(temp_path.data, target, &checked_input, &checked_program, diag);
+  if (ok && !validate_target_capabilities(&checked_program, target, diag, checked_input.source_file)) {
+    if (phase) *phase = GRAPH_CHECK_PHASE_TARGET_READINESS;
+    ok = false;
+  }
+  if (!ok) graph_check_relabel_diag_path(command, diag);
+
+  graph_roundtrip_cleanup(temp_path.data, temp_dir.data);
+  z_free_program(&checked_program);
+  z_free_source(&checked_input);
+  zbuf_free(&temp_dir);
+  zbuf_free(&temp_path);
+  return ok;
+}
+
 static int run_graph_check_command(const Command *command, const ZTargetInfo *target, ZDiag *diag) {
   ZProgramGraph graph;
   if (!z_program_graph_load(command->input, &graph, diag)) {
@@ -9598,49 +9645,54 @@ static int run_graph_check_command(const Command *command, const ZTargetInfo *ta
   }
 
   ZBuf view;
-  ZBuf temp_dir;
-  ZBuf temp_path;
   zbuf_init(&view);
-  zbuf_init(&temp_dir);
-  zbuf_init(&temp_path);
   z_program_graph_append_view(&view, &graph);
 
   if (command->out && !z_write_file(command->out, view.data ? view.data : "", diag)) {
     if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
     else print_diag(diag->path ? diag->path : command->out, diag);
     zbuf_free(&view);
-    zbuf_free(&temp_dir);
-    zbuf_free(&temp_path);
     z_program_graph_free(&graph);
     return 1;
   }
 
-  if (!graph_temp_path("check", "graph-check.0", &temp_dir, &temp_path, diag) ||
-      !z_write_file(temp_path.data, view.data ? view.data : "", diag)) {
-    if (command->json) print_diag_json(diag->path ? diag->path : (temp_path.data ? temp_path.data : command->input), diag);
-    else print_diag(diag->path ? diag->path : (temp_path.data ? temp_path.data : command->input), diag);
-    graph_roundtrip_cleanup(temp_path.data, temp_dir.data);
-    zbuf_free(&view);
-    zbuf_free(&temp_dir);
-    zbuf_free(&temp_path);
-    z_program_graph_free(&graph);
-    return 1;
-  }
-
-  SourceInput checked_input = {0};
   Program checked_program = {0};
-  const char *phase = "typecheck";
-  bool ok = compile_input(temp_path.data, target, &checked_input, &checked_program, diag);
-  if (ok && !validate_target_capabilities(&checked_program, target, diag, checked_input.source_file)) {
-    phase = "target-readiness";
+  GraphCheckPhase phase = GRAPH_CHECK_PHASE_TYPECHECK;
+  bool ok = z_program_graph_lower_to_program(&graph, &checked_program, diag);
+  if (ok) {
+    z_set_check_target(target);
+    ok = z_check_program(&checked_program, diag);
+  } else {
+    phase = GRAPH_CHECK_PHASE_LOWER;
+  }
+  if (ok && !validate_target_capabilities(&checked_program, target, diag, command->input)) {
+    phase = GRAPH_CHECK_PHASE_TARGET_READINESS;
     ok = false;
   }
-  if (!ok) graph_check_relabel_diag_path(command, diag);
+  if (!ok && phase == GRAPH_CHECK_PHASE_TYPECHECK) {
+    ZDiag view_diag = {0};
+    GraphCheckPhase view_phase = phase;
+    if (!graph_check_generated_view_for_diag(command, target, view.data ? view.data : "", &view_phase, &view_diag)) {
+      *diag = view_diag;
+      phase = view_phase;
+    } else {
+      graph_check_relabel_diag_path(command, diag);
+    }
+  } else if (!ok && phase == GRAPH_CHECK_PHASE_TARGET_READINESS) {
+    ZDiag view_diag = {0};
+    GraphCheckPhase view_phase = phase;
+    if (!graph_check_generated_view_for_diag(command, target, view.data ? view.data : "", &view_phase, &view_diag)) {
+      *diag = view_diag;
+      phase = view_phase;
+    }
+  }
+
+  if (!ok && phase == GRAPH_CHECK_PHASE_LOWER && !diag->path) diag->path = command->input;
 
   if (command->json) {
     ZBuf json;
     zbuf_init(&json);
-    append_graph_check_json(&json, command, target, &graph, ok, ok ? NULL : diag, phase, view.data ? view.data : "");
+    append_graph_check_json(&json, command, target, &graph, ok, ok ? NULL : diag, graph_check_phase_name(phase), view.data ? view.data : "");
     fputs(json.data, stdout);
     zbuf_free(&json);
   } else if (ok) {
@@ -9649,12 +9701,8 @@ static int run_graph_check_command(const Command *command, const ZTargetInfo *ta
     print_diag(diag->path ? diag->path : command->input, diag);
   }
 
-  graph_roundtrip_cleanup(temp_path.data, temp_dir.data);
   z_free_program(&checked_program);
-  z_free_source(&checked_input);
   zbuf_free(&view);
-  zbuf_free(&temp_dir);
-  zbuf_free(&temp_path);
   z_program_graph_free(&graph);
   return ok ? 0 : 1;
 }

@@ -1,4 +1,5 @@
 #include "program_graph_format.h"
+#include "program_graph_lower.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -126,7 +127,40 @@ static void set_edge(ZProgramGraphEdge *edge, const char *from, const char *to, 
   edge->order = order;
 }
 
+static void expect_lowered_program(void) {
+  ZProgramGraph graph;
+  z_program_graph_init(&graph);
+  graph.nodes = z_checked_calloc(3, sizeof(ZProgramGraphNode));
+  graph.node_len = 3;
+  graph.node_cap = 3;
+  set_node(&graph.nodes[0], "node:000001", Z_PROGRAM_GRAPH_NODE_MODULE, "smoke", NULL);
+  set_node(&graph.nodes[1], "node:000002", Z_PROGRAM_GRAPH_NODE_FUNCTION, "main", "Void");
+  graph.nodes[1].is_public = true;
+  set_node(&graph.nodes[2], "node:000003", Z_PROGRAM_GRAPH_NODE_BLOCK, "body", NULL);
+  graph.edges = z_checked_calloc(2, sizeof(ZProgramGraphEdge));
+  graph.edge_len = 2;
+  graph.edge_cap = 2;
+  set_edge(&graph.edges[0], "node:000001", "node:000002", "function", Z_PROGRAM_GRAPH_EDGE_TARGET_NODE, 0);
+  set_edge(&graph.edges[1], "node:000002", "node:000003", "body", Z_PROGRAM_GRAPH_EDGE_TARGET_NODE, 0);
+  z_program_graph_finalize_identities(&graph);
+
+  ZProgramGraphValidation validation = {0};
+  expect(z_program_graph_validate(&graph, &validation), "lowerable graph failed validation");
+  Program program = {0};
+  ZDiag diag = {0};
+  expect(z_program_graph_lower_to_program(&graph, &program, &diag), diag.message);
+  expect(program.functions.len == 1, "lowered graph reported wrong function count");
+  expect(strcmp(program.functions.items[0].name, "main") == 0, "lowered function kept wrong name");
+  expect(strcmp(program.functions.items[0].return_type, "Void") == 0, "lowered function kept wrong return type");
+  expect(program.functions.items[0].is_public, "lowered function lost public flag");
+  expect(program.functions.items[0].body.len == 0, "lowered empty body gained statements");
+  z_free_program(&program);
+  z_program_graph_free(&graph);
+}
+
 int main(void) {
+  expect_lowered_program();
+
   ZProgramGraph graph;
   z_program_graph_init(&graph);
   graph.nodes = z_checked_calloc(2, sizeof(ZProgramGraphNode));
