@@ -9785,7 +9785,27 @@ static int run_graph_view_command(const Command *command, ZDiag *diag) {
     z_program_graph_free(&graph);
     return 1;
   }
-  if (command->format == FORMAT_JSON) {
+  if (command->format == FORMAT_ZDN) {
+    ZBuf buf;
+    zbuf_init(&buf);
+    zbuf_append(&buf, "GraphView\n");
+    zdn_field_int(&buf, "schemaVersion", 1, 1);
+    zdn_field_bool(&buf, "ok", true, 1);
+    zdn_field_string(&buf, "artifact", command->input ? command->input : "", 1);
+    zdn_field_string(&buf, "moduleIdentity", graph.module_identity, 1);
+    zdn_field_string(&buf, "graphHash", graph.graph_hash, 1);
+    if (command->out) {
+      zdn_object_start(&buf, "saved", 1);
+      zdn_field_string(&buf, "path", command->out, 2);
+      zdn_field_bool(&buf, "byteStable", true, 2);
+      zdn_object_end(&buf, 1);
+    }
+    if (view.data && view.data[0]) {
+      zdn_field_string(&buf, "view", view.data, 1);
+    }
+    fputs(buf.data, stdout);
+    zbuf_free(&buf);
+  } else if (command->format == FORMAT_JSON) {
     ZBuf json;
     zbuf_init(&json);
     append_graph_view_json(&json, command, &graph, view.data ? view.data : "");
@@ -9842,7 +9862,51 @@ static int run_graph_patch_command(const Command *command, ZDiag *diag) {
     return 1;
   }
 
-  if (command->format == FORMAT_JSON) {
+  if (command->format == FORMAT_ZDN) {
+    ZBuf buf;
+    zbuf_init(&buf);
+    zbuf_append(&buf, "GraphPatch\n");
+    zdn_field_int(&buf, "schemaVersion", 1, 1);
+    zdn_field_bool(&buf, "ok", ok, 1);
+    zdn_field_string(&buf, "artifact", command->input ? command->input : "", 1);
+    zdn_field_string(&buf, "patch", command->patch_file ? command->patch_file : "", 1);
+    zdn_field_string(&buf, "originalGraphHash", original_hash ? original_hash : "", 1);
+    if (ok) zdn_field_string(&buf, "patchedGraphHash", graph.graph_hash ? graph.graph_hash : "", 1);
+    zdn_field_int(&buf, "operationCount", (long long)result.operation_len, 1);
+    zdn_array_start(&buf, "operations", 1);
+    for (size_t i = 0; i < result.operation_len; i++) {
+      const ZProgramGraphPatchOpResult *op = &result.operations[i];
+      zbuf_append(&buf, "    Operation\n");
+      zdn_field_int(&buf, "index", (long long)op->index, 3);
+      zdn_field_int(&buf, "line", op->line, 3);
+      zdn_field_string(&buf, "op", op->op ? op->op : "", 3);
+      zdn_field_bool(&buf, "ok", op->ok, 3);
+      if (op->node) zdn_field_string(&buf, "node", op->node, 3);
+      if (op->field) zdn_field_string(&buf, "field", op->field, 3);
+      if (op->expected) zdn_field_string(&buf, "expected", op->expected, 3);
+      if (op->actual) zdn_field_string(&buf, "actual", op->actual, 3);
+      if (op->value) zdn_field_string(&buf, "value", op->value, 3);
+      if (!op->ok && op->code[0]) zdn_field_string(&buf, "code", op->code, 3);
+      if (!op->ok && op->message[0]) zdn_field_string(&buf, "message", op->message, 3);
+    }
+    zdn_array_end(&buf, 1);
+    if (!ok && result.code[0]) {
+      zdn_object_start(&buf, "diagnostic", 1);
+      zdn_field_string(&buf, "code", result.code, 2);
+      zdn_field_string(&buf, "message", result.message, 2);
+      if (result.expected) zdn_field_string(&buf, "expected", result.expected, 2);
+      if (result.actual) zdn_field_string(&buf, "actual", result.actual, 2);
+      zdn_object_end(&buf, 1);
+    }
+    if (command->out && ok) {
+      zdn_object_start(&buf, "saved", 1);
+      zdn_field_string(&buf, "path", command->out, 2);
+      zdn_field_bool(&buf, "byteStable", true, 2);
+      zdn_object_end(&buf, 1);
+    }
+    fputs(buf.data, stdout);
+    zbuf_free(&buf);
+  } else if (command->format == FORMAT_JSON) {
     ZBuf json;
     zbuf_init(&json);
     append_graph_patch_json(&json, command, &graph, &result, original_hash);
@@ -10031,7 +10095,33 @@ static int run_graph_check_command(const Command *command, const ZTargetInfo *ta
 
   if (!ok && phase == GRAPH_CHECK_PHASE_LOWER && !diag->path) diag->path = command->input;
 
-  if (command->format == FORMAT_JSON) {
+  if (command->format == FORMAT_ZDN) {
+    ZBuf buf;
+    zbuf_init(&buf);
+    zbuf_append(&buf, "GraphCheck\n");
+    zdn_field_int(&buf, "schemaVersion", 1, 1);
+    zdn_field_bool(&buf, "ok", ok, 1);
+    zdn_field_string(&buf, "artifact", command->input ? command->input : "", 1);
+    zdn_field_string(&buf, "moduleIdentity", graph.module_identity, 1);
+    zdn_field_string(&buf, "graphHash", graph.graph_hash, 1);
+    zdn_object_start(&buf, "check", 1);
+    zdn_field_bool(&buf, "ok", ok, 2);
+    zdn_field_string(&buf, "phase", graph_check_phase_name(phase), 2);
+    zdn_field_string(&buf, "lowering", "direct-program-graph", 2);
+    if (command->out) zdn_field_string(&buf, "sourcePath", command->out, 2);
+    zdn_object_end(&buf, 1);
+    if (command->out) {
+      zdn_object_start(&buf, "saved", 1);
+      zdn_field_string(&buf, "path", command->out, 2);
+      zdn_field_bool(&buf, "byteStable", true, 2);
+      zdn_object_end(&buf, 1);
+    }
+    if (view.data && view.data[0]) {
+      zdn_field_string(&buf, "view", view.data, 1);
+    }
+    fputs(buf.data, stdout);
+    zbuf_free(&buf);
+  } else if (command->format == FORMAT_JSON) {
     ZBuf json;
     zbuf_init(&json);
     append_graph_check_json(&json, command, target, &graph, &checked_input, &checked_program, ok, ok ? NULL : diag, graph_check_phase_name(phase), view.data ? view.data : "");
@@ -10059,7 +10149,59 @@ static int run_graph_artifact_roundtrip_command(const Command *command, ZDiag *d
     z_program_graph_direct_roundtrip_free(&result);
     return 1;
   }
-  if (command->format == FORMAT_JSON) {
+  if (command->format == FORMAT_ZDN) {
+    ZBuf buf;
+    zbuf_init(&buf);
+    zbuf_append(&buf, "GraphRoundtrip\n");
+    zdn_field_int(&buf, "schemaVersion", 1, 1);
+    zdn_field_bool(&buf, "ok", result.comparison.ok, 1);
+    zdn_field_string(&buf, "artifact", command->input ? command->input : "", 1);
+    zdn_field_bool(&buf, "semanticStable", result.comparison.ok, 1);
+    zdn_field_string(&buf, "lowering", "direct-program-graph", 1);
+    zdn_field_string(&buf, "moduleIdentity", result.original.module_identity, 1);
+    zdn_field_string(&buf, "roundtripModuleIdentity", result.roundtrip.module_identity, 1);
+    zdn_field_string(&buf, "originalGraphHash", result.original.graph_hash, 1);
+    zdn_field_string(&buf, "roundtripGraphHash", result.roundtrip.graph_hash, 1);
+    zdn_object_start(&buf, "counts", 1);
+    zdn_object_start(&buf, "original", 2);
+    zdn_field_int(&buf, "nodes", (long long)result.original.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)result.original.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_start(&buf, "roundtrip", 2);
+    zdn_field_int(&buf, "nodes", (long long)result.roundtrip.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)result.roundtrip.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_end(&buf, 1);
+    zdn_object_start(&buf, "semanticCounts", 1);
+    zdn_object_start(&buf, "original", 2);
+    zdn_field_int(&buf, "nodes", (long long)result.original.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)result.original.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_start(&buf, "roundtrip", 2);
+    zdn_field_int(&buf, "nodes", (long long)result.roundtrip.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)result.roundtrip.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_end(&buf, 1);
+    zdn_object_start(&buf, "comparison", 1);
+    zdn_field_bool(&buf, "ok", result.comparison.ok, 2);
+    if (!result.comparison.ok) {
+      zdn_field_string(&buf, "code", result.comparison.code, 2);
+      zdn_field_string(&buf, "message", result.comparison.message, 2);
+      zdn_field_string(&buf, "field", result.comparison.field, 2);
+      zdn_field_int(&buf, "leftIndex", (long long)result.comparison.left_index, 2);
+      zdn_field_int(&buf, "rightIndex", (long long)result.comparison.right_index, 2);
+    }
+    zdn_object_end(&buf, 1);
+    if (command->out) {
+      zdn_object_start(&buf, "saved", 1);
+      zdn_field_string(&buf, "path", command->out, 2);
+      zdn_field_string(&buf, "kind", "program-graph", 2);
+      zdn_field_bool(&buf, "byteStable", true, 2);
+      zdn_object_end(&buf, 1);
+    }
+    fputs(buf.data, stdout);
+    zbuf_free(&buf);
+  } else if (command->format == FORMAT_JSON) {
     ZBuf json;
     zbuf_init(&json);
     append_graph_roundtrip_json(&json,
@@ -10276,7 +10418,55 @@ static int run_graph_roundtrip_command(const Command *command, SourceInput *inpu
   z_program_graph_from_program(&roundtrip_input, &roundtrip_program, &roundtrip);
   ZProgramGraphCompare comparison = {0};
   z_program_graph_semantic_compare(&original, &roundtrip, &comparison);
-  if (command->format == FORMAT_JSON) {
+  if (command->format == FORMAT_ZDN) {
+    ZBuf buf;
+    zbuf_init(&buf);
+    zbuf_append(&buf, "GraphRoundtrip\n");
+    zdn_field_int(&buf, "schemaVersion", 1, 1);
+    zdn_field_bool(&buf, "ok", comparison.ok, 1);
+    zdn_field_string(&buf, "sourceFile", input ? input->source_file : (command->input ? command->input : ""), 1);
+    zdn_field_bool(&buf, "semanticStable", comparison.ok, 1);
+    zdn_field_string(&buf, "lowering", "generated-view", 1);
+    zdn_field_string(&buf, "moduleIdentity", original.module_identity, 1);
+    zdn_field_string(&buf, "roundtripModuleIdentity", roundtrip.module_identity, 1);
+    zdn_field_string(&buf, "originalGraphHash", original.graph_hash, 1);
+    zdn_field_string(&buf, "roundtripGraphHash", roundtrip.graph_hash, 1);
+    zdn_object_start(&buf, "counts", 1);
+    zdn_object_start(&buf, "original", 2);
+    zdn_field_int(&buf, "nodes", (long long)original.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)original.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_start(&buf, "roundtrip", 2);
+    zdn_field_int(&buf, "nodes", (long long)roundtrip.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)roundtrip.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_end(&buf, 1);
+    zdn_object_start(&buf, "semanticCounts", 1);
+    zdn_object_start(&buf, "original", 2);
+    zdn_field_int(&buf, "nodes", (long long)original.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)original.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_start(&buf, "roundtrip", 2);
+    zdn_field_int(&buf, "nodes", (long long)roundtrip.node_len, 3);
+    zdn_field_int(&buf, "edges", (long long)roundtrip.edge_len, 3);
+    zdn_object_end(&buf, 2);
+    zdn_object_end(&buf, 1);
+    zdn_object_start(&buf, "comparison", 1);
+    zdn_field_bool(&buf, "ok", comparison.ok, 2);
+    if (!comparison.ok) {
+      zdn_field_string(&buf, "code", comparison.code, 2);
+      zdn_field_string(&buf, "message", comparison.message, 2);
+      zdn_field_string(&buf, "field", comparison.field, 2);
+      zdn_field_int(&buf, "leftIndex", (long long)comparison.left_index, 2);
+      zdn_field_int(&buf, "rightIndex", (long long)comparison.right_index, 2);
+    }
+    zdn_object_end(&buf, 1);
+    if (view.data && view.data[0]) {
+      zdn_field_string(&buf, "view", view.data, 1);
+    }
+    fputs(buf.data, stdout);
+    zbuf_free(&buf);
+  } else if (command->format == FORMAT_JSON) {
     ZBuf json;
     zbuf_init(&json);
     append_graph_roundtrip_json(&json,

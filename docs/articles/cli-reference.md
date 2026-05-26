@@ -123,7 +123,12 @@ the same output. Supported across all commands that accept
 | `zero test --zdn`    | `TestResult`     |
 | `zero tokens --zdn`  | `TokensResult`   |
 | `zero parse --zdn`   | `ParseResult`    |
-| `zero graph --zdn`   | `GraphResult`    |
+| `zero graph dump --zdn`      | `GraphResult`       |
+| `zero graph validate --zdn`  | `GraphValidation`  |
+| `zero graph view --zdn`      | `GraphView`        |
+| `zero graph check --zdn`     | `GraphCheck`       |
+| `zero graph patch --zdn`     | `GraphPatch`       |
+| `zero graph roundtrip --zdn` | `GraphRoundtrip`   |
 | `zero explain --zdn` | `ExplainResult`  |
 | `zero fix --plan --zdn` | `FixPlanResult`  |
 | `zero doctor --zdn`     | `DoctorResult`   |
