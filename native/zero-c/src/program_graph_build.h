@@ -12,6 +12,7 @@ typedef struct {
 
 bool z_program_graph_command_kind_is_known(const char *kind);
 bool z_program_graph_command_kind_uses_artifact_input(const char *kind);
+bool z_program_graph_direct_command_uses_manifest_input(const char *command);
 bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source);
 bool z_program_graph_prepare_artifact_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, ZProgramGraphArtifactSource *source, ZDiag *diag);
 

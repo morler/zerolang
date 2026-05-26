@@ -343,6 +343,16 @@ const graphManifestPackageDir = join(outDir, "graph-manifest-package");
 const graphManifestArtifactPath = join(graphManifestPackageDir, "artifacts", "test-app.program-graph");
 const graphManifestBuildPath = join(outDir, "graph-manifest-package-build");
 const graphManifestRunPath = join(outDir, "graph-manifest-package-run");
+const directGraphManifestBuildPath = join(outDir, "direct-graph-manifest-package-build");
+const directGraphManifestRunPath = join(outDir, "direct-graph-manifest-package-run");
+const directGraphManifestShipPath = join(outDir, "direct-graph-manifest-package-ship");
+const directGraphTargetGateRoot = join(outDir, "direct-graph-target-gate");
+const directGraphTargetGatePackageDir = join(directGraphTargetGateRoot, "app");
+const directGraphTargetGateDepDir = join(directGraphTargetGateRoot, "target-webbits");
+const directGraphTargetGateArtifactPath = join(directGraphTargetGatePackageDir, "artifacts", "app.program-graph");
+const directGraphHostLeakPackageDir = join(outDir, "direct-graph-host-leak-package");
+const directGraphHostLeakArtifactPath = join(directGraphHostLeakPackageDir, "artifacts", "app.program-graph");
+const directGraphHostLeakBuildPath = join(outDir, "direct-graph-host-leak-build");
 const graphSizeNoisePatchPath = join(outDir, "hello.program-graph.size-noise.patch");
 const graphSizeNoisePath = join(outDir, "hello.program-graph.size-noise.program-graph");
 const graphRoundtripViewPath = join(outDir, "hello.roundtrip.0");
@@ -418,6 +428,12 @@ rmSync(graphPackageTestDumpPath, { force: true });
 rmSync(graphManifestPackageDir, { force: true, recursive: true });
 rmSync(graphManifestBuildPath, { force: true });
 rmSync(graphManifestRunPath, { force: true });
+rmSync(directGraphManifestBuildPath, { force: true });
+rmSync(directGraphManifestRunPath, { force: true });
+rmSync(directGraphManifestShipPath, { force: true });
+rmSync(directGraphTargetGateRoot, { force: true, recursive: true });
+rmSync(directGraphHostLeakPackageDir, { force: true, recursive: true });
+rmSync(directGraphHostLeakBuildPath, { force: true });
 rmSync(graphSizeNoisePatchPath, { force: true });
 rmSync(graphSizeNoisePath, { force: true });
 rmSync(graphRoundtripViewPath, { force: true });
@@ -677,6 +693,95 @@ const graphManifestTestJson = json(["graph", "test", "--json", graphManifestPack
 assert.equal(graphManifestTestJson.ok, true);
 assert.equal(graphManifestTestJson.graph.artifact, graphManifestArtifactPath);
 assert.equal(graphManifestTestJson.testDiscovery.mode, "package-graph");
+const directGraphManifestCheckJson = json(["check", "--json", graphManifestPackageDir]).body;
+assert.equal(directGraphManifestCheckJson.ok, true);
+assert.equal(directGraphManifestCheckJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(directGraphManifestCheckJson.graph.moduleIdentity, "package:test-app@0.1.0");
+assert.equal(directGraphManifestCheckJson.graph.lowering, "direct-program-graph");
+assert.equal(directGraphManifestCheckJson.package.name, "graph-manifest-package");
+assert.equal(directGraphManifestCheckJson.package.manifestPath, join(graphManifestPackageDir, "zero.json"));
+assert.notEqual(directGraphManifestCheckJson.package.manifestHash, "0000000000000000");
+assert(directGraphManifestCheckJson.compilerCaches.every((cache) => cache.sourceKind === "program-graph" && cache.graphHash === directGraphManifestCheckJson.graph.graphHash));
+assert.equal(directGraphManifestCheckJson.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "graph artifact");
+assert.equal(directGraphManifestCheckJson.interfaceFingerprints.sourceKind, "program-graph");
+assert.equal(directGraphManifestCheckJson.interfaceFingerprints.graphHash, directGraphManifestCheckJson.graph.graphHash);
+assert.equal(directGraphManifestCheckJson.incrementalInvalidation.sourceKind, "program-graph");
+assert.equal(directGraphManifestCheckJson.incrementalInvalidation.graphInput.artifact, graphManifestArtifactPath);
+assert.equal(directGraphManifestCheckJson.incrementalInvalidation.graphInput.graphHash, directGraphManifestCheckJson.graph.graphHash);
+assert.equal(directGraphManifestCheckJson.incrementalInvalidation.changedInputs.graphArtifact, graphManifestArtifactPath);
+assert.equal(directGraphManifestCheckJson.incrementalInvalidation.changedInputs.manifestPath, join(graphManifestPackageDir, "zero.json"));
+const directGraphManifestSizeJson = json(["size", "--json", "--target", "linux-musl-x64", graphManifestPackageDir]).body;
+assert.equal(directGraphManifestSizeJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(directGraphManifestSizeJson.graph.lowering, "direct-program-graph");
+const directGraphManifestBuildJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", directGraphManifestBuildPath, graphManifestPackageDir]).body;
+assert.equal(directGraphManifestBuildJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(directGraphManifestBuildJson.graph.lowering, "direct-program-graph");
+assert.equal(zero(["run", "--out", directGraphManifestRunPath, graphManifestPackageDir]).stdout, "package tests\n");
+const directGraphManifestTestJson = json(["test", "--json", graphManifestPackageDir]).body;
+assert.equal(directGraphManifestTestJson.ok, true);
+assert.equal(directGraphManifestTestJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(directGraphManifestTestJson.testDiscovery.mode, "package-graph");
+const directGraphManifestShipJson = json(["ship", "--json", "--target", "linux-musl-x64", "--out", directGraphManifestShipPath, graphManifestPackageDir]).body;
+assert.equal(directGraphManifestShipJson.ok, true);
+assert.equal(directGraphManifestShipJson.sourceFile, graphManifestArtifactPath);
+assert.equal(directGraphManifestShipJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(directGraphManifestShipJson.graph.lowering, "direct-program-graph");
+assert.equal(directGraphManifestShipJson.artifactPath, directGraphManifestShipPath);
+assert.equal(existsSync(directGraphManifestShipPath), true);
+assert(directGraphManifestShipJson.compilerCaches.every((cache) => cache.sourceKind === "program-graph" && cache.graphHash === directGraphManifestShipJson.graph.graphHash));
+assert.equal(directGraphManifestShipJson.incrementalInvalidation.sourceKind, "program-graph");
+assert.equal(directGraphManifestShipJson.incrementalInvalidation.graphInput.artifact, graphManifestArtifactPath);
+const sourcePackageCheckJson = json(["check", "--json", "conformance/packages/test-app"]).body;
+assert.equal(sourcePackageCheckJson.ok, true);
+assert.equal(sourcePackageCheckJson.graph, undefined);
+mkdirSync(join(directGraphTargetGatePackageDir, "src"), { recursive: true });
+mkdirSync(join(directGraphTargetGatePackageDir, "artifacts"), { recursive: true });
+mkdirSync(join(directGraphTargetGateDepDir, "src"), { recursive: true });
+writeFileSync(join(directGraphTargetGatePackageDir, "src", "main.0"), "pub fn main Void world World !\n  check world.out.write \"target gate\\n\"\n");
+writeFileSync(join(directGraphTargetGateDepDir, "src", "main.0"), "pub fn main Void world World !\n  check world.out.write \"webbits\\n\"\n");
+writeFileSync(join(directGraphTargetGateDepDir, "zero.json"), `${JSON.stringify({
+  package: { name: "target-webbits", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+}, null, 2)}\n`);
+writeFileSync(join(directGraphTargetGatePackageDir, "zero.json"), `${JSON.stringify({
+  package: { name: "direct-graph-target-gate", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0", graph: "artifacts/app.program-graph" } },
+  dependencies: {
+    "target-webbits": {
+      path: "../target-webbits",
+      version: "0.1.0",
+      targets: ["win32-x64.exe"],
+    },
+  },
+}, null, 2)}\n`);
+assert.equal(zero(["graph", "import", "--out", directGraphTargetGateArtifactPath, directGraphTargetGatePackageDir]).stdout, "");
+const directGraphTargetGateJson = json(["check", "--json", "--target", "linux-musl-x64", directGraphTargetGatePackageDir], { allowFailure: true });
+assert.equal(directGraphTargetGateJson.code, 1);
+assert.equal(directGraphTargetGateJson.body.diagnostics[0].code, "PKG004");
+assert.equal(directGraphTargetGateJson.body.diagnostics[0].message, "package dependency is not compatible with target");
+mkdirSync(join(directGraphHostLeakPackageDir, "src"), { recursive: true });
+mkdirSync(join(directGraphHostLeakPackageDir, "artifacts"), { recursive: true });
+writeFileSync(join(directGraphHostLeakPackageDir, "src", "main.0"), "pub fn main Void world World !\n  check world.out.write \"host leak\\n\"\n");
+writeFileSync(join(directGraphHostLeakPackageDir, "zero.json"), `${JSON.stringify({
+  package: { name: "direct-graph-host-leak", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0", graph: "artifacts/app.program-graph" } },
+  c: {
+    libs: {
+      hostonly: {
+        headers: ["hostonly.h"],
+        include: ["/usr/include"],
+        lib: ["/usr/lib"],
+        link: ["hostonly"],
+        pkg_config: "hostonly",
+      },
+    },
+  },
+}, null, 2)}\n`);
+assert.equal(zero(["graph", "import", "--out", directGraphHostLeakArtifactPath, directGraphHostLeakPackageDir]).stdout, "");
+const directGraphHostLeakJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", directGraphHostLeakBuildPath, directGraphHostLeakPackageDir], { allowFailure: true });
+assert.equal(directGraphHostLeakJson.code, 1);
+assert.equal(directGraphHostLeakJson.body.diagnostics[0].code, "CIMP003");
+assert.equal(directGraphHostLeakJson.body.diagnostics[0].message, "foreign target C dependency would use host discovery");
 const graphManifestMissingJson = json(["graph", "check", "--json", "conformance/packages/test-app"], { allowFailure: true });
 assert.equal(graphManifestMissingJson.code, 1);
 assert.equal(graphManifestMissingJson.body.diagnostics[0].message, "zero.json is missing targets.cli.graph");

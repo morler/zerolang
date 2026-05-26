@@ -23,6 +23,11 @@ bool z_program_graph_command_kind_uses_artifact_input(const char *kind) {
   return graph_kind_in_list(kind, kinds, sizeof(kinds) / sizeof(kinds[0]));
 }
 
+bool z_program_graph_direct_command_uses_manifest_input(const char *command) {
+  static const char *const commands[] = {"check", "build", "run", "test", "size", "ship"};
+  return graph_kind_in_list(command, commands, sizeof(commands) / sizeof(commands[0]));
+}
+
 bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source) {
   return source && source->graph_hash && source->graph_hash[0];
 }
