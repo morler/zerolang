@@ -3265,7 +3265,7 @@ static void print_help(void) {
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
   printf("  zero graph [dump|validate|view|check|size|build|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n");
-  printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n");
+  printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
   printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
@@ -3344,7 +3344,7 @@ static void print_command_help(const char *command) {
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
     printf("Usage: zero graph [dump|validate|view|check|size|build|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n\n");
-    printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n\n");
+    printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n\nRun usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n\n");
     printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph artifacts.\n\n");
     printf("Subcommands:\n");
     printf("  dump      print or write only the deterministic ProgramGraph\n");
@@ -3352,7 +3352,7 @@ static void print_command_help(const char *command) {
     printf("  view      render a ProgramGraph artifact as a generated Zero view\n");
     printf("  check     typecheck a ProgramGraph artifact through direct graph lowering\n");
     printf("  size      report size, helper, runtime, and backend facts for a ProgramGraph artifact\n");
-    printf("  build     build a ProgramGraph artifact through direct graph lowering\n");
+    printf("  build     build a ProgramGraph artifact through direct graph lowering\n  run       build and run a ProgramGraph artifact through direct graph lowering\n");
     printf("  patch     apply checked edits to a ProgramGraph artifact\n");
     printf("  roundtrip compare graph semantics after generated-view reparse or direct artifact lowering\n");
   } else if (strcmp(command, "doc") == 0) {
@@ -3498,7 +3498,8 @@ static bool parse_command(int argc, char **argv, Command *command) {
     command->kind = argv[2];
     arg_start = 3;
   }
-  if (strcmp(command->command, "run") == 0) {
+  bool graph_run_command = is_graph_command && command->kind && strcmp(command->kind, "run") == 0;
+  if (strcmp(command->command, "run") == 0 || graph_run_command) {
     for (int i = arg_start; i < argc; i++) {
       if (command->input) {
         if (strcmp(argv[i], "--") == 0) {
@@ -10382,16 +10383,17 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (strcmp(command.command, "run") == 0) {
+  bool graph_run_command = strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "run") == 0;
+  if (strcmp(command.command, "run") == 0 || graph_run_command) {
     if (command.json) {
       diag.code = 2002;
       diag.line = 1;
       diag.column = 1;
       diag.length = 1;
-      snprintf(diag.message, sizeof(diag.message), "zero run does not support --json");
-      snprintf(diag.expected, sizeof(diag.expected), "zero run <input>");
-      snprintf(diag.actual, sizeof(diag.actual), "zero run --json");
-      snprintf(diag.help, sizeof(diag.help), "program stdout belongs to the program; use zero build --json to inspect the artifact before running it");
+      snprintf(diag.message, sizeof(diag.message), "%s does not support --json", graph_run_command ? "zero graph run" : "zero run");
+      snprintf(diag.expected, sizeof(diag.expected), "%s <input>", graph_run_command ? "zero graph run" : "zero run");
+      snprintf(diag.actual, sizeof(diag.actual), "%s --json", graph_run_command ? "zero graph run" : "zero run");
+      snprintf(diag.help, sizeof(diag.help), "program stdout belongs to the program; use %s --json to inspect the artifact before running it", graph_run_command ? "zero graph build" : "zero build");
       print_diag_json(command.input, &diag);
       return 1;
     }
@@ -10400,10 +10402,10 @@ int main(int argc, char **argv) {
       diag.line = 1;
       diag.column = 1;
       diag.length = 1;
-      snprintf(diag.message, sizeof(diag.message), "zero run only supports executable output");
-      snprintf(diag.expected, sizeof(diag.expected), "zero run <input>");
+      snprintf(diag.message, sizeof(diag.message), "%s only supports executable output", graph_run_command ? "zero graph run" : "zero run");
+      snprintf(diag.expected, sizeof(diag.expected), "%s <input>", graph_run_command ? "zero graph run" : "zero run");
       snprintf(diag.actual, sizeof(diag.actual), "--emit obj");
-      snprintf(diag.help, sizeof(diag.help), "use zero build --emit obj when you need a non-executable artifact");
+      snprintf(diag.help, sizeof(diag.help), "use %s --emit obj when you need a non-executable artifact", graph_run_command ? "zero graph build" : "zero build");
       print_diag(command.input, &diag);
       return 1;
     }
@@ -10412,10 +10414,10 @@ int main(int argc, char **argv) {
       diag.line = 1;
       diag.column = 1;
       diag.length = 1;
-      snprintf(diag.message, sizeof(diag.message), "zero run requires the host target");
+      snprintf(diag.message, sizeof(diag.message), "%s requires the host target", graph_run_command ? "zero graph run" : "zero run");
       snprintf(diag.expected, sizeof(diag.expected), "target %s", z_host_target());
       snprintf(diag.actual, sizeof(diag.actual), "target %s", target && target->name ? target->name : "unknown");
-      snprintf(diag.help, sizeof(diag.help), "use zero build --target %s for cross-target artifacts, then run them on a matching host", target && target->name ? target->name : "<target>");
+      snprintf(diag.help, sizeof(diag.help), "use %s --target %s for cross-target artifacts, then run them on a matching host", graph_run_command ? "zero graph build" : "zero build", target && target->name ? target->name : "<target>");
       print_diag(command.input, &diag);
       return 1;
     }
@@ -10567,7 +10569,7 @@ int main(int argc, char **argv) {
   SourceInput input = {0};
   Program program = {0};
   bool graph_build_command = strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "build") == 0;
-  if (graph_build_command) {
+  if (graph_build_command || graph_run_command) {
     ZProgramGraphBuildSource graph_source = {0};
     if (!z_program_graph_prepare_build_input(command.input, target, &program, &input, &graph_source, &diag)) {
       if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
@@ -10581,7 +10583,7 @@ int main(int argc, char **argv) {
     input.check_cache_hit = compiler_cache_touch("checked-body", compile_cache_key(&input, target, NULL, "checked-body"));
     input.specialization_cache_hit = compiler_cache_touch("specialization", compile_cache_key(&input, target, command.profile, "specialization"));
     command.graph_source = graph_source;
-    command.command = "build";
+    command.command = graph_run_command ? "run" : "build";
     command.kind = NULL;
   } else if (!compile_input(command.input, target, &input, &program, &diag)) {
     if (strcmp(command.command, "fix") == 0) {

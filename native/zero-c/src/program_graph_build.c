@@ -7,15 +7,11 @@
 #include <string.h>
 
 bool z_program_graph_command_kind_is_known(const char *kind) {
-  return kind &&
-         (strcmp(kind, "dump") == 0 ||
-          strcmp(kind, "validate") == 0 ||
-          strcmp(kind, "view") == 0 ||
-          strcmp(kind, "check") == 0 ||
-          strcmp(kind, "size") == 0 ||
-          strcmp(kind, "build") == 0 ||
-          strcmp(kind, "patch") == 0 ||
-          strcmp(kind, "roundtrip") == 0);
+  static const char *kinds[] = {"dump", "validate", "view", "check", "size", "build", "run", "patch", "roundtrip"};
+  for (size_t i = 0; kind && i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+    if (strcmp(kind, kinds[i]) == 0) return true;
+  }
+  return false;
 }
 
 bool z_program_graph_build_source_present(const ZProgramGraphBuildSource *source) {

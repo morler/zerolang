@@ -332,6 +332,9 @@ const graphCheckViewPath = join(outDir, "hello.checked.program-graph.0");
 const graphSizePath = join(outDir, "hello.program-graph.size.json");
 const graphBuildPath = join(outDir, "hello.program-graph-build");
 const graphObjPath = join(outDir, "hello.program-graph.o");
+const graphRunPath = join(outDir, "hello.program-graph-run");
+const graphArgsDumpPath = join(outDir, "std-args.program-graph");
+const graphArgsRunPath = join(outDir, "std-args.program-graph-run");
 const graphSizeNoisePatchPath = join(outDir, "hello.program-graph.size-noise.patch");
 const graphSizeNoisePath = join(outDir, "hello.program-graph.size-noise.program-graph");
 const graphRoundtripViewPath = join(outDir, "hello.roundtrip.0");
@@ -397,6 +400,9 @@ rmSync(graphCheckViewPath, { force: true });
 rmSync(graphSizePath, { force: true });
 rmSync(graphBuildPath, { force: true });
 rmSync(graphObjPath, { force: true });
+rmSync(graphRunPath, { force: true });
+rmSync(graphArgsDumpPath, { force: true });
+rmSync(graphArgsRunPath, { force: true });
 rmSync(graphSizeNoisePatchPath, { force: true });
 rmSync(graphSizeNoisePath, { force: true });
 rmSync(graphRoundtripViewPath, { force: true });
@@ -567,6 +573,14 @@ assert.equal(graphObjJson.target, "linux-musl-x64");
 assert.equal(graphObjJson.generatedCBytes, 0);
 assert.equal(graphObjJson.artifactPath, graphObjPath);
 assert.equal(graphObjJson.artifactBytes, statSync(graphObjPath).size);
+assert.equal(zero(["graph", "run", "--out", graphRunPath, graphDumpPath]).stdout, "hello from zero\n");
+assert.equal(existsSync(graphRunPath), true);
+assert.equal(zero(["graph", "dump", "--out", graphArgsDumpPath, "conformance/native/pass/std-args.0"]).stdout, "");
+assert.equal(zero(["graph", "run", "--out", graphArgsRunPath, graphArgsDumpPath, "--", "alpha", "beta"]).stdout, "alpha\n");
+assert.equal(existsSync(graphArgsRunPath), true);
+const graphRunJson = json(["graph", "run", "--json", graphDumpPath], { allowFailure: true });
+assert.equal(graphRunJson.code, 1);
+assert.equal(graphRunJson.body.diagnostics[0].message, "zero graph run does not support --json");
 writeFileSync(graphSizeNoisePatchPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,

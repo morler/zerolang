@@ -41,6 +41,7 @@ zero graph view .zero/out/hello.graph
 zero graph check --json .zero/out/hello.graph
 zero graph size --json .zero/out/hello.graph
 zero graph build --json --emit obj --target linux-musl-x64 --out .zero/out/hello.o .zero/out/hello.graph
+zero graph run .zero/out/hello.graph
 zero graph patch --out .zero/out/hello.patched.graph .zero/out/hello.graph .zero/out/hello.patch
 zero graph roundtrip examples/hello.0
 zero graph roundtrip .zero/out/hello.graph
@@ -58,6 +59,7 @@ Pass program arguments after `--`:
 
 ```sh
 zero run examples/cli-file.0 -- input.txt
+zero graph run .zero/out/cli-file.graph -- input.txt
 ```
 
 ## JSON Output
@@ -200,6 +202,7 @@ zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <f
 zero fmt [--check] <input>
 zero graph [dump|validate|view|check|size|build|patch|roundtrip] [--json] [--target <target>] [--out <file>] <input> [patch-file]
 zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>
+zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]
 zero doc [--json] [--target <target>] <input>
 zero size [--json] [--target <target>] [--out <artifact>] <input>
 zero explain [--json] <diagnostic-code>
