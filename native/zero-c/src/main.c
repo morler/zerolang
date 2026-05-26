@@ -2900,7 +2900,55 @@ static int explain_command(const Command *command) {
     else print_diag(command->input, &diag);
     return 1;
   }
-  if (command->format == FORMAT_ZDN) ; /* ZDN explain not yet implemented */
+  if (command->format == FORMAT_ZDN) {
+    ZBuf buf;
+    zbuf_init(&buf);
+    zbuf_append(&buf, "ExplainResult\n");
+    zdn_field_string(&buf, "code", info->code, 1);
+    zdn_field_string(&buf, "category", info->category, 1);
+    zdn_field_string(&buf, "title", info->title, 1);
+    zdn_field_string(&buf, "summary", info->summary, 1);
+    zdn_field_string(&buf, "why", info->why, 1);
+    zdn_object_start(&buf, "repair", 1);
+    zdn_field_string(&buf, "id", diag_repair_id(
+      strcmp(info->code, "TAR001") == 0 ? 6001 :
+      strcmp(info->code, "TAR002") == 0 ? 6002 :
+      strcmp(info->code, "BLD003") == 0 ? 2003 :
+      strcmp(info->code, "BLD004") == 0 ? 2004 :
+      strcmp(info->code, "TYP009") == 0 ? 3010 :
+      strcmp(info->code, "TYP023") == 0 ? 3032 :
+      strcmp(info->code, "TYP024") == 0 ? 3033 :
+      strcmp(info->code, "TYP025") == 0 ? 3034 :
+      strcmp(info->code, "MET001") == 0 ? 3035 :
+      strcmp(info->code, "TYP026") == 0 ? 3036 :
+      strcmp(info->code, "TYP027") == 0 ? 3050 :
+      strcmp(info->code, "PUB001") == 0 ? 3037 :
+      strcmp(info->code, "IFC001") == 0 ? 3038 :
+      strcmp(info->code, "IFC002") == 0 ? 3039 :
+      strcmp(info->code, "IFC003") == 0 ? 3040 :
+      strcmp(info->code, "IFC004") == 0 ? 3041 :
+      strcmp(info->code, "IFC005") == 0 ? 3042 :
+      strcmp(info->code, "STC001") == 0 ? 3043 :
+      strcmp(info->code, "STC002") == 0 ? 3044 :
+      strcmp(info->code, "STC003") == 0 ? 3045 :
+      strcmp(info->code, "SHM001") == 0 ? 3046 :
+      strcmp(info->code, "SHM002") == 0 ? 3047 :
+      strcmp(info->code, "RCV001") == 0 ? 3048 :
+      strcmp(info->code, "RCV002") == 0 ? 3049 :
+      strcmp(info->code, "BOR001") == 0 ? 3029 :
+      strcmp(info->code, "ERR002") == 0 ? 1002 :
+      strcmp(info->code, "ERR003") == 0 ? 1003 :
+      strcmp(info->code, "STD003") == 0 ? 3012 :
+      strcmp(info->code, "CGEN004") == 0 ? 4004 : 0), 2);
+    zdn_field_string(&buf, "summary", info->canonical_repair, 2);
+    zdn_object_end(&buf, 1);
+    zdn_object_start(&buf, "examples", 1);
+    zdn_field_string(&buf, "bad", info->bad_example, 2);
+    zdn_field_string(&buf, "good", info->good_example, 2);
+    zdn_object_end(&buf, 1);
+    fputs(buf.data, stdout);
+    zbuf_free(&buf);
+  }
   else if (command->format == FORMAT_JSON) print_explain_json(info);
   else print_explain_text(info);
   return 0;
@@ -3164,22 +3212,22 @@ static void print_help(void) {
   printf("  zero --version [--json]\n");
   printf("  zero skills [list|get] [--json]\n");
   printf("  zero new cli|lib|package <name>\n");
-  printf("  zero check <file.0|file.row|project|zero.json>\n");
+  printf("  zero check [--json] [--zdn] <file.0|file.row|project|zero.json>\n");
   printf("  zero test <file.0|file.row|project|zero.json>\n");
   printf("  zero fmt <file.0|file.row|project|zero.json>\n");
-  printf("  zero build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|file.row|project|zero.json>\n");
+  printf("  zero build [--json] [--zdn] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero run [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|file.row|project|zero.json> [-- args...]\n");
-  printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero graph [dump|validate] [--json] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n");
-  printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
-  printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero dev [--json] [--trace] <file.0|file.row|project|zero.json>\n");
-  printf("  zero time --json <file.0|file.row|project|zero.json>\n");
+  printf("  zero ship [--json] [--zdn] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
+  printf("  zero tokens --json|--zdn <file.0|file.row|project|zero.json>\n");
+  printf("  zero parse --json|--zdn <file.0|file.row|project|zero.json>\n");
+  printf("  zero graph [dump|validate] [--json] [--zdn] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n");
+  printf("  zero doc [--json] [--zdn] <file.0|file.row|project|zero.json>\n");
+  printf("  zero size [--json] [--zdn] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
+  printf("  zero mem [--json] [--zdn] [--target <target>] <file.0|file.row|project|zero.json>\n");
+  printf("  zero dev [--json] [--zdn] [--trace] <file.0|file.row|project|zero.json>\n");
+  printf("  zero time --json|--zdn <file.0|file.row|project|zero.json>\n");
   printf("  zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero explain [--json] <code>\n");
+  printf("  zero explain [--json] [--zdn] <code>\n");
   printf("  zero fix --plan --json <file.0|file.row|project|zero.json>\n");
   printf("  zero doctor [--json]\n");
   printf("  zero clean [--all]\n");
@@ -3190,6 +3238,7 @@ static void print_help(void) {
   printf("  zero build --emit exe examples/hello.0 --out .zero/out/hello\n");
   printf("  zero ship --target linux-musl-x64 examples/hello.0 --out .zero/ship/hello\n");
   printf("  zero check --json examples/hello.0\n");
+  printf("  zero check --zdn examples/hello.0\n");
   printf("  zero build --target linux-musl-x64 examples/memory-package\n");
 }
 
@@ -3217,7 +3266,7 @@ static void print_command_help(const char *command) {
     printf("Flags:\n");
     printf("  --all    remove broader .zero generated state while preserving .zero/bin\n");
   } else if (strcmp(command, "check") == 0) {
-    printf("Usage: zero check [--json] [--target <target>] [--emit exe|obj] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero check [--json] [--zdn] [--target <target>] [--emit exe|obj] <file.0|file.row|project|zero.json>\n\n");
     printf("Parse and typecheck Zero source without emitting artifacts. JSON output includes target readiness for the selected emit kind.\n");
   } else if (strcmp(command, "build") == 0) {
     printf("Usage: zero build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <input>\n\n");
@@ -9161,7 +9210,31 @@ static int run_graph_validate_command(const Command *command, ZDiag *diag) {
     fputs(json.data, stdout);
     zbuf_free(&json);
   } else if (command->format == FORMAT_ZDN) {
-    /* ZDN graph validate not yet implemented */
+    ZBuf buf;
+    zbuf_init(&buf);
+    zbuf_append(&buf, "GraphValidation\n");
+    zdn_field_bool(&buf, "ok", true, 1);
+    zdn_field_string(&buf, "artifact", command->input ? command->input : "", 1);
+    zdn_field_string(&buf, "moduleIdentity", graph.module_identity, 1);
+    zdn_field_string(&buf, "graphHash", graph.graph_hash, 1);
+    zdn_object_start(&buf, "counts", 1);
+    zdn_field_int(&buf, "nodes", (long long)graph.node_len, 2);
+    zdn_field_int(&buf, "edges", (long long)graph.edge_len, 2);
+    zdn_object_end(&buf, 1);
+    zdn_object_start(&buf, "validation", 1);
+    zdn_field_string(&buf, "state", z_program_graph_validation_state_name(validation.state ? validation.state : Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID), 2);
+    zdn_field_bool(&buf, "ok", true, 2);
+    zdn_object_end(&buf, 1);
+    if (command->out) {
+      zdn_object_start(&buf, "saved", 1);
+      zdn_field_string(&buf, "path", command->out, 2);
+      zdn_field_bool(&buf, "byteStable", true, 2);
+      zdn_object_end(&buf, 1);
+    } else {
+      zdn_field_nullable_string(&buf, "saved", NULL, 1);
+    }
+    fputs(buf.data, stdout);
+    zbuf_free(&buf);
   } else {
     printf("program graph ok\n");
   }
