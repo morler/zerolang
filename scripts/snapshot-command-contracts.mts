@@ -337,6 +337,8 @@ const graphPatchInsertPath = join(outDir, "hello.insert.program-graph.patch");
 const graphInsertedPath = join(outDir, "hello.insert.program-graph");
 const graphPatchDeletePath = join(outDir, "hello.delete.program-graph.patch");
 const graphDeletedPath = join(outDir, "hello.delete.program-graph");
+const graphPatchDeleteThenInsertPath = join(outDir, "hello.delete-then-insert.program-graph.patch");
+const graphDeleteThenInsertedPath = join(outDir, "hello.delete-then-insert.program-graph");
 const graphPatchDeleteNodeFactPath = join(outDir, "hello.delete-node-fact.program-graph.patch");
 const graphDeletedNodeFactPath = join(outDir, "hello.delete-node-fact.program-graph");
 const graphPatchDeleteExternalRootRefPath = join(outDir, "hello.delete-external-root-ref.program-graph.patch");
@@ -393,6 +395,8 @@ rmSync(graphPatchInsertPath, { force: true });
 rmSync(graphInsertedPath, { force: true });
 rmSync(graphPatchDeletePath, { force: true });
 rmSync(graphDeletedPath, { force: true });
+rmSync(graphPatchDeleteThenInsertPath, { force: true });
+rmSync(graphDeleteThenInsertedPath, { force: true });
 rmSync(graphPatchDeleteNodeFactPath, { force: true });
 rmSync(graphDeletedNodeFactPath, { force: true });
 rmSync(graphPatchDeleteExternalRootRefPath, { force: true });
@@ -562,6 +566,28 @@ assert.equal(graphDeletePatchJson.ok, true);
 assert.equal(graphDeletePatchJson.operations[0].op, "delete");
 assert.equal(graphDeletePatchJson.operations[0].actual, graphInsertedCheckHash);
 assert.equal(readFileSync(graphDeletedPath, "utf8"), graphDump);
+const graphOriginalCheckNode = graphDumpJson.nodes.find((node) => node.kind === "Check");
+assert(graphOriginalCheckNode);
+writeFileSync(graphPatchDeleteThenInsertPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphInsertPatchJson.patchedGraphHash}"`,
+  `delete node="${graphOriginalCheckNode.id}" expect="${graphOriginalCheckNode.nodeHash}"`,
+  `insert node="node:patch_replacement_check" kind="Check" parent="node:000007" edge="statement" order="0" path="examples/hello.0" line="2" column="3"`,
+  `insert node="node:patch_replacement_call" kind="MethodCall" parent="node:patch_replacement_check" edge="expr" order="0" name="write" type="Void" path="examples/hello.0" line="2" column="25"`,
+  `insert node="node:patch_replacement_write" kind="FieldAccess" parent="node:patch_replacement_call" edge="left" order="0" name="write" path="examples/hello.0" line="2" column="18"`,
+  `insert node="node:patch_replacement_out" kind="FieldAccess" parent="node:patch_replacement_write" edge="left" order="0" name="out" path="examples/hello.0" line="2" column="14"`,
+  `insert node="node:patch_replacement_world" kind="Identifier" parent="node:patch_replacement_out" edge="left" order="0" name="world" path="examples/hello.0" line="2" column="9"`,
+  `insert node="node:patch_replacement_lit" kind="Literal" parent="node:patch_replacement_call" edge="arg" order="0" type="String" value="replacement line\\n" path="examples/hello.0" line="2" column="25"`,
+  "",
+].join("\n"));
+const graphDeleteThenInsertPatchJson = json(["graph", "patch", "--json", "--out", graphDeleteThenInsertedPath, graphInsertedPath, graphPatchDeleteThenInsertPath]).body;
+assert.equal(graphDeleteThenInsertPatchJson.ok, true);
+assert.equal(graphDeleteThenInsertPatchJson.operations[0].op, "delete");
+assert.equal(graphDeleteThenInsertPatchJson.operations[1].op, "insert");
+const graphDeleteThenInsertedView = zero(["graph", "view", graphDeleteThenInsertedPath]).stdout;
+assert.match(graphDeleteThenInsertedView, /check world\.out\.write "replacement line\\n"\n  check world\.out\.write "second line\\n"/);
+assert.equal(zero(["graph", "check", graphDeleteThenInsertedPath]).stdout, "program graph check ok\n");
+assert.equal(zero(["graph", "roundtrip", graphDeleteThenInsertedPath]).stdout, "program graph roundtrip ok\n");
 writeFileSync(graphPatchDeleteNodeFactPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,

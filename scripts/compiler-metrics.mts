@@ -58,7 +58,7 @@ const fileBudgets = {
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph.c": { maxLines: 117, maxStrcmpCalls: 4 },
-  "native/zero-c/src/program_graph_compare.c": { maxLines: 282, maxStrcmpCalls: 1 },
+  "native/zero-c/src/program_graph_compare.c": { maxLines: 445, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_compare.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_format.c": { maxLines: 707, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_format.h": { maxLines: 20, maxStrcmpCalls: 0 },
