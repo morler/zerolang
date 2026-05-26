@@ -1,4 +1,5 @@
 #include "program_graph_format.h"
+#include "program_graph_import.h"
 
 #include <ctype.h>
 #include <limits.h>

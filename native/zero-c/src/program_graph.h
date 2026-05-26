@@ -128,7 +128,6 @@ const char *z_program_graph_validation_state_name(ZProgramGraphValidationState s
 void z_program_graph_finalize_identities(ZProgramGraph *graph);
 void z_program_graph_init(ZProgramGraph *graph);
 void z_program_graph_free(ZProgramGraph *graph);
-bool z_program_graph_from_program(const SourceInput *input, const Program *program, ZProgramGraph *graph);
 bool z_program_graph_validate(const ZProgramGraph *graph, ZProgramGraphValidation *validation);
 
 #endif
