@@ -100,6 +100,9 @@ linking facts such as retained runtime objects, provider libraries, and
 
 ## ZDN Output
 
+Refer to the [ZDN Format](/zdn) reference for the complete specification,
+syntax grammar, parser example, and output samples for every command.
+
 Use `--zdn` or `--format zdn` when an AI agent or automated tool
 will read structured output. ZDN (Zero Data Notation) is an
 agent-first format that reuses Zero's row syntax — each
@@ -109,50 +112,6 @@ arrays.
 `--zdn` is a shorthand for `--format zdn`. Both flags produce
 the same output. Supported across all commands that accept
 `--json`:
-
-| Command | ZDN record name |
-| --- | --- |
-| `zero check --zdn`   | `CheckResult`    |
-| `zero build --zdn`   | `BuildResult`    |
-| `zero ship --zdn`    | `ShipResult`     |
-| `zero size --zdn`    | `SizeResult`     |
-| `zero doc --zdn`     | `DocResult`      |
-| `zero dev --zdn`     | `DevResult`      |
-| `zero time --zdn`    | `TimeResult`     |
-| `zero mem --zdn`     | `MemResult`      |
-| `zero test --zdn`    | `TestResult`     |
-| `zero tokens --zdn`  | `TokensResult`   |
-| `zero parse --zdn`   | `ParseResult`    |
-| `zero graph dump --zdn`      | `GraphResult`       |
-| `zero graph validate --zdn`  | `GraphValidation`  |
-| `zero graph view --zdn`      | `GraphView`        |
-| `zero graph check --zdn`     | `GraphCheck`       |
-| `zero graph patch --zdn`     | `GraphPatch`       |
-| `zero graph roundtrip --zdn` | `GraphRoundtrip`   |
-| `zero abi dump --zdn`   | `AbiDump`          |
-| `zero abi check --zdn`  | `AbiCheck`         |
-| `zero explain --zdn` | `ExplainResult`  |
-| `zero fix --plan --zdn` | `FixPlanResult`  |
-| `zero doctor --zdn`     | `DoctorResult`   |
-| `zero --version --zdn`  | `VersionResult`  |
-| `zero skills list --zdn` | `SkillsList`    |
-| `zero targets --zdn`    | `TargetsResult`  |
-
-Example output:
-
-```
-zero check --zdn examples/add.0
-```
-
-```
-CheckResult
-  schemaVersion 1
-  ok true
-  sourceFile "examples/add.0"
-  hostTarget "linux-x64"
-  target "linux-x64"
-  diagnostics
-```
 
 ## ProgramGraph Patches
 
