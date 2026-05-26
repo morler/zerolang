@@ -95,6 +95,28 @@ linking facts such as retained runtime objects, provider libraries, and
 `zero ship --json` nests the same contract under
 `releasePreview.targetContract`.
 
+## ProgramGraph Patches
+
+`zero graph patch` applies checked edits to a saved ProgramGraph artifact and
+prints or writes the canonical patched artifact. Patch files are line-oriented
+text:
+
+```text
+zero-program-graph-patch v1
+expect graphHash "graph:f76987e99677f1b3"
+set node="node:000013" field="value" expect="hello from zero\n" value="hello patched\n"
+```
+
+The header is required. `expect graphHash` is optional but recommended; it
+rejects edits against a different artifact. `set` requires `node`, `field`, and
+`value`; `expect` is optional and rejects the operation when the current field
+value differs.
+
+Editable fields are `name`, `type`, `value`, `public`, `mutable`, `static`,
+`fallible`, and `exportC`. Boolean fields accept only `true` or `false`.
+Strings support `\\`, `\"`, `\n`, `\r`, `\t`, and `\u00XX` escapes for
+non-NUL bytes. NUL bytes are not valid ProgramGraph patch text.
+
 ## Build Outputs
 
 | Emit mode | Command |

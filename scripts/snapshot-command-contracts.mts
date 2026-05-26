@@ -334,6 +334,7 @@ const graphPatchedPath = join(outDir, "hello.patched.program-graph");
 const graphPatchEmptyPath = join(outDir, "hello.empty.program-graph.patch");
 const graphPatchControlPath = join(outDir, "hello.control.program-graph.patch");
 const graphPatchBadEscapePath = join(outDir, "hello.bad-escape.program-graph.patch");
+const graphPatchNullEscapePath = join(outDir, "hello.null-escape.program-graph.patch");
 const graphPatchMismatchPath = join(outDir, "hello.mismatch.program-graph.patch");
 const graphPatchBadHashPath = join(outDir, "hello.bad-hash.program-graph.patch");
 const graphSparseOrderPath = join(outDir, "hello.sparse-order.program-graph");
@@ -347,6 +348,7 @@ rmSync(graphPatchedPath, { force: true });
 rmSync(graphPatchEmptyPath, { force: true });
 rmSync(graphPatchControlPath, { force: true });
 rmSync(graphPatchBadEscapePath, { force: true });
+rmSync(graphPatchNullEscapePath, { force: true });
 rmSync(graphPatchMismatchPath, { force: true });
 rmSync(graphPatchBadHashPath, { force: true });
 rmSync(graphSparseOrderPath, { force: true });
@@ -434,6 +436,16 @@ const graphPatchBadEscape = json(["graph", "patch", "--json", graphDumpPath, gra
 assert.notEqual(graphPatchBadEscape.code, 0);
 assert.equal(graphPatchBadEscape.body.ok, false);
 assert.equal(graphPatchBadEscape.body.diagnostic.code, "GPH001");
+writeFileSync(graphPatchNullEscapePath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `set node="node:000013" field="value" expect="hello from zero\\n" value="\\u0000x"`,
+  "",
+].join("\n"));
+const graphPatchNullEscape = json(["graph", "patch", "--json", graphDumpPath, graphPatchNullEscapePath], { allowFailure: true });
+assert.notEqual(graphPatchNullEscape.code, 0);
+assert.equal(graphPatchNullEscape.body.ok, false);
+assert.equal(graphPatchNullEscape.body.diagnostic.code, "GPH001");
 writeFileSync(graphPatchBadHashPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "graph:0000000000000000"`,

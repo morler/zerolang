@@ -90,7 +90,7 @@ static bool patch_parse_quoted(const char **cursor, char **out) {
         }
         int high = patch_hex_value((*cursor)[3]);
         int low = patch_hex_value((*cursor)[4]);
-        if (high < 0 || low < 0) {
+        if (high < 0 || low < 0 || (high == 0 && low == 0)) {
           zbuf_free(&buf);
           return false;
         }
