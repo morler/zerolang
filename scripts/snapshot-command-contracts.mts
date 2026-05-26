@@ -329,12 +329,20 @@ const graphDumpPath = join(outDir, "hello.program-graph");
 const graphCanonicalPath = join(outDir, "hello.canonical.program-graph");
 const graphViewPath = join(outDir, "hello.program-graph.0");
 const graphRoundtripViewPath = join(outDir, "hello.roundtrip.0");
+const graphPatchPath = join(outDir, "hello.program-graph.patch");
+const graphPatchedPath = join(outDir, "hello.patched.program-graph");
+const graphPatchMismatchPath = join(outDir, "hello.mismatch.program-graph.patch");
+const graphPatchBadHashPath = join(outDir, "hello.bad-hash.program-graph.patch");
 const graphSparseOrderPath = join(outDir, "hello.sparse-order.program-graph");
 const graphSparseArgPath = join(outDir, "hello.sparse-arg.program-graph");
 rmSync(graphDumpPath, { force: true });
 rmSync(graphCanonicalPath, { force: true });
 rmSync(graphViewPath, { force: true });
 rmSync(graphRoundtripViewPath, { force: true });
+rmSync(graphPatchPath, { force: true });
+rmSync(graphPatchedPath, { force: true });
+rmSync(graphPatchMismatchPath, { force: true });
+rmSync(graphPatchBadHashPath, { force: true });
 rmSync(graphSparseOrderPath, { force: true });
 rmSync(graphSparseArgPath, { force: true });
 assert.equal(zero(["graph", "dump", "--out", graphDumpPath, "examples/hello.0"]).stdout, "");
@@ -368,6 +376,55 @@ assert.equal(graphViewOutJson.ok, true);
 assert.equal(graphViewOutJson.saved.path, graphViewPath);
 assert.equal(graphViewOutJson.view, null);
 assert.equal(readFileSync(graphViewPath, "utf8"), graphView);
+writeFileSync(graphPatchPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `set node="node:000013" field="value" expect="hello from zero\\n" value="hello patched\\n"`,
+  "",
+].join("\n"));
+assert.equal(zero(["graph", "patch", "--out", graphPatchedPath, graphDumpPath, graphPatchPath]).stdout, "program graph patch ok\n");
+const graphPatchJson = json(["graph", "patch", "--json", "--out", graphPatchedPath, graphDumpPath, graphPatchPath]).body;
+assert.equal(graphPatchJson.ok, true);
+assert.equal(graphPatchJson.canonicalSource, false);
+assert.equal(graphPatchJson.patch, graphPatchPath);
+assert.equal(graphPatchJson.originalGraphHash, graphDumpJson.graphHash);
+assert.match(graphPatchJson.patchedGraphHash, /^graph:[0-9a-f]{16}$/);
+assert.notEqual(graphPatchJson.patchedGraphHash, graphDumpJson.graphHash);
+assert.equal(graphPatchJson.operationCount, 1);
+assert.equal(graphPatchJson.operations[0].ok, true);
+assert.equal(graphPatchJson.operations[0].node, "node:000013");
+assert.equal(graphPatchJson.operations[0].field, "value");
+assert.equal(graphPatchJson.operations[0].actual, "hello from zero\n");
+assert.equal(graphPatchJson.operations[0].value, "hello patched\n");
+assert.equal(graphPatchJson.diagnostic, null);
+assert.equal(graphPatchJson.saved.path, graphPatchedPath);
+assert.equal(zero(["graph", "validate", graphPatchedPath]).stdout, "program graph ok\n");
+assert.match(zero(["graph", "view", graphPatchedPath]).stdout, /check world\.out\.write "hello patched\\n"/);
+writeFileSync(graphPatchBadHashPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "graph:0000000000000000"`,
+  `set node="node:000013" field="value" value="unreachable\\n"`,
+  "",
+].join("\n"));
+const graphPatchBadHash = json(["graph", "patch", "--json", graphDumpPath, graphPatchBadHashPath], { allowFailure: true });
+assert.notEqual(graphPatchBadHash.code, 0);
+assert.equal(graphPatchBadHash.body.ok, false);
+assert.equal(graphPatchBadHash.body.diagnostic.code, "GPH002");
+assert.equal(graphPatchBadHash.body.patchedGraphHash, null);
+assert.equal(graphPatchBadHash.body.saved, null);
+writeFileSync(graphPatchMismatchPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphDumpJson.graphHash}"`,
+  `set node="node:000013" field="value" expect="not this" value="unreachable\\n"`,
+  "",
+].join("\n"));
+const graphPatchMismatch = json(["graph", "patch", "--json", graphDumpPath, graphPatchMismatchPath], { allowFailure: true });
+assert.notEqual(graphPatchMismatch.code, 0);
+assert.equal(graphPatchMismatch.body.ok, false);
+assert.equal(graphPatchMismatch.body.diagnostic.code, "GPH005");
+assert.equal(graphPatchMismatch.body.operations[0].ok, false);
+assert.equal(graphPatchMismatch.body.operations[0].actual, "hello from zero\n");
+assert.equal(graphPatchMismatch.body.saved, null);
 assert.equal(zero(["graph", "roundtrip", "examples/hello.0"]).stdout, "program graph roundtrip ok\n");
 const graphRoundtripJson = json(["graph", "roundtrip", "--json", "examples/hello.0"]).body;
 assert.equal(graphRoundtripJson.ok, true);
