@@ -9756,11 +9756,14 @@ static int run_graph_validate_command(const Command *command, ZDiag *diag) {
     else print_diag(diag->path ? diag->path : command->input, diag);
     return 1;
   }
-  if (command->out && !z_program_graph_save(command->out, &graph, diag)) {
-    if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
-    else print_diag(diag->path ? diag->path : command->out, diag);
-    z_program_graph_free(&graph);
-    return 1;
+  if (command->out) {
+    z_program_graph_apply_storage_metadata(command->out, &graph);
+    if (!z_program_graph_save(command->out, &graph, diag)) {
+      if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
+      else print_diag(diag->path ? diag->path : command->out, diag);
+      z_program_graph_free(&graph);
+      return 1;
+    }
   }
   ZProgramGraphValidation validation = {0};
   z_program_graph_validate(&graph, &validation);
@@ -9842,13 +9845,16 @@ static int run_graph_patch_command(const Command *command, ZDiag *diag) {
     z_program_graph_free(&graph);
     return 1;
   }
-  if (ok && command->out && !z_program_graph_save(command->out, &graph, diag)) {
-    if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
-    else print_diag(diag->path ? diag->path : command->out, diag);
-    z_program_graph_patch_result_free(&result);
-    free(original_hash);
-    z_program_graph_free(&graph);
-    return 1;
+  if (ok && command->out) {
+    z_program_graph_apply_storage_metadata(command->out, &graph);
+    if (!z_program_graph_save(command->out, &graph, diag)) {
+      if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
+      else print_diag(diag->path ? diag->path : command->out, diag);
+      z_program_graph_patch_result_free(&result);
+      free(original_hash);
+      z_program_graph_free(&graph);
+      return 1;
+    }
   }
 
   if (command->json) {
@@ -10184,13 +10190,17 @@ static int run_graph_roundtrip_command(const Command *command, SourceInput *inpu
   }
 
   if (command->json && !command->out) z_program_graph_append_view(&view, &original);
-  if (command->out && !z_program_graph_save(command->out, &roundtrip, diag)) {
-    if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
-    else print_diag(diag->path ? diag->path : command->out, diag);
-    z_program_graph_free(&roundtrip);
-    z_program_graph_free(&original);
-    zbuf_free(&view);
-    return 1;
+  if (command->out) {
+    z_program_graph_apply_storage_metadata(command->out, &roundtrip);
+    if (roundtrip.canonical_source) original.canonical_source = true;
+    if (!z_program_graph_save(command->out, &roundtrip, diag)) {
+      if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
+      else print_diag(diag->path ? diag->path : command->out, diag);
+      z_program_graph_free(&roundtrip);
+      z_program_graph_free(&original);
+      zbuf_free(&view);
+      return 1;
+    }
   }
 
   if (command->json) {
@@ -10246,6 +10256,7 @@ static int run_graph_command(const Command *command, SourceInput *input, Program
       else print_diag(diag->path ? diag->path : command->input, diag);
       return 1;
     }
+    z_program_graph_apply_storage_metadata(command->out, &stored);
     if (!z_program_graph_save(command->out, &stored, diag)) {
       if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
       else print_diag(diag->path ? diag->path : command->out, diag);
