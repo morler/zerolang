@@ -275,7 +275,173 @@ describe("native zero CLI", () => {
     assert.match(result.stderr, /explain: zero explain FLD001/);
   });
 
-  it("produces ZDN output for check, test, tokens, parse, and explain", async () => {
+  it("produces full-data ZDN fields for check output", async () => {
+  // Verify that --zdn check includes all JSON-equivalent compiler metadata fields
+  const check = await runZero(["check", "--zdn", "examples/point.0"]);
+  const out = check.stdout;
+
+  // Core fields
+  assert.ok(out.includes("CheckResult"), `missing CheckResult record`);
+
+  // Compiler internals (previously JSON-only)
+  assert.ok(out.includes("compileTime"), `missing compileTime in ZDN output`);
+  assert.ok(out.includes("deterministic"), `missing deterministic in compileTime`);
+  assert.ok(out.includes("metaCache"), `missing metaCache in ZDN output`);
+  assert.ok(out.includes("hits"), `missing metaCache.hits`);
+  assert.ok(out.includes("targetReadiness"), `missing targetReadiness`);
+  assert.ok(out.includes("buildable"), `missing targetReadiness.buildable`);
+  assert.ok(out.includes("compilerPhases"), `missing compilerPhases`);
+  assert.ok(out.includes("compilerCaches"), `missing compilerCaches`);
+  assert.ok(out.includes("interfaceFingerprints"), `missing interfaceFingerprints`);
+  assert.ok(out.includes("incrementalInvalidation"), `missing incrementalInvalidation`);
+  assert.ok(out.includes("selfHostRouting"), `missing selfHostRouting`);
+  assert.ok(out.includes("subsetCompatible"), `missing selfHostRouting.subsetCompatible`);
+  assert.ok(out.includes("package"), `missing package in ZDN output`);
+  assert.ok(out.includes("packageCache"), `missing packageCache in ZDN output`);
+
+  // Include "Phase" type tag for compiler phases
+  assert.ok(out.includes("Phase\n"), `missing Phase type tag in compilerPhases`);
+  assert.ok(out.includes('name "resolve"'), `missing resolve phase`);
+
+  // Verify ok field at the correct indent level (agent-accessible in first few lines)
+  const okLine = out.split("\n").find((line) => line.includes("ok true"));
+  assert.ok(okLine, `missing ok true line`);
+  assert.ok(okLine.startsWith("  ok"), `ok field should be at indent level 1`);
+});
+
+it("produces full-data ZDN fields for build output", async () => {
+  // Build to /dev/null to avoid writing temp files.
+  // Use direct-exe-return.0 (primitive-only) rather than point.0 (shape types).
+  const result = await runZero(["build", "--zdn", "--emit", "exe", "examples/direct-exe-return.0", "--out", "/dev/null"]);
+  const out = result.stdout;
+
+  assert.ok(out.includes("BuildResult"), `missing BuildResult record`);
+  assert.ok(out.includes("toolchain"), `missing toolchain in build ZDN`);
+  assert.ok(out.includes("driverKind"), `missing driverKind`);
+  assert.ok(out.includes("targetTriple"), `missing targetTriple`);
+  assert.ok(out.includes("targetSupport"), `missing targetSupport`);
+  assert.ok(out.includes("directStatus"), `missing directStatus`);
+  assert.ok(out.includes("legacy"), `missing legacy field`);
+  assert.ok(out.includes("legacyBackend"), `missing legacyBackend field`);
+
+  // Check the artifact output
+  assert.ok(out.includes('artifactPath "/dev/null"'), `missing artifact path`);
+});
+
+it("produces full-data ZDN fields for version output", async () => {
+  const ver = await runZero(["--version", "--zdn"]);
+  const out = ver.stdout;
+
+  assert.ok(out.includes("VersionResult"), `missing VersionResult record`);
+  assert.ok(out.includes("schemaVersion"), `missing schemaVersion`);
+  assert.ok(out.includes('version "0.1.4"'), `missing version`);
+  assert.ok(out.includes("commit"), `missing commit field`);
+  assert.ok(out.includes("backend"), `missing backend field`);
+  assert.ok(out.includes('backend "zero-c"'), `missing zero-c backend`);
+  assert.ok(out.includes("targets"), `missing targets field`);
+  assert.ok(out.includes("targetCompiler"), `missing targetCompiler`);
+  assert.ok(out.includes("available"), `missing targetCompiler.available`);
+  assert.ok(out.includes("crossCompilation"), `missing crossCompilation`);
+  assert.ok(out.includes("ready"), `missing crossCompilation.ready`);
+});
+
+it("produces full-data ZDN fields for doctor output", async () => {
+  const doctor = await runZero(["doctor", "--zdn"]);
+  const out = doctor.stdout;
+
+  assert.ok(out.includes("DoctorResult"), `missing DoctorResult record`);
+  assert.ok(out.includes("status"), `missing status`);
+  assert.ok(out.includes("nativeCCompiler"), `missing nativeCCompiler`);
+  assert.ok(out.includes("targetCCompiler"), `missing targetCCompiler`);
+  assert.ok(out.includes("checks"), `missing checks array`);
+  assert.ok(out.includes("targetToolchains"), `missing targetToolchains array`);
+
+  // Check individual doctor checks
+  assert.ok(out.includes("native-c-compiler"), `missing native-c-compiler check`);
+  assert.ok(out.includes("target-c-compiler"), `missing target-c-compiler check`);
+  assert.ok(out.includes("host-target"), `missing host-target check`);
+});
+
+it("verifies JSON and ZDN output field parity for check command", async () => {
+  // Run both --json and --zdn on the same file and verify the same fields are present
+  const [jsonResult, zdnResult] = await Promise.all([
+    runZero(["check", "--json", "examples/direct-exe-return.0"]).then((r) => JSON.parse(r.stdout)),
+    runZero(["check", "--zdn", "examples/direct-exe-return.0"]),
+  ]);
+  const zdn = zdnResult.stdout;
+
+  // JSON has these top-level keys; verify they appear in ZDN
+  const jsonTopKeys = ["schemaVersion", "ok", "sourceFile", "package", "packageCache",
+    "metaCache", "compileTime", "targetReadiness", "compilerPhases",
+    "compilerCaches", "interfaceFingerprints", "incrementalInvalidation",
+    "selfHostRouting"];
+  for (const key of jsonTopKeys) {
+    assert.ok(zdn.includes(key), `ZDN output missing field "${key}" present in JSON`);
+  }
+
+  // Verify JSON values match ZDN values for core fields
+  assert.ok(zdn.includes('ok true'), `ZDN should report ok true`);
+  assert.ok(zdn.includes(`sourceFile "examples/direct-exe-return.0"`), `ZDN should include source file path`);
+
+  // Verify metaCache details
+  assert.ok(zdn.includes('hits') && zdn.includes('misses'), `ZDN should include metaCache hit/miss`);
+
+  // Verify targetReadiness
+  assert.ok(zdn.includes('buildable'), `ZDN should include buildable in targetReadiness`);
+  assert.ok(zdn.includes('backend'), `ZDN should include backend`);
+
+  // Verify compilerPhases have structured items
+  assert.ok(zdn.includes('Phase'), `ZDN compilerPhases should have Phase type tags`);
+  assert.ok(zdn.includes('name "parse"'), `ZDN should include parse phase`);
+
+  // Verify selfHostRouting
+  assert.ok(zdn.includes('subsetCompatible'), `ZDN should include subsetCompatible`);
+  assert.ok(zdn.includes('native-bootstrap'), `ZDN should include native-bootstrap mode`);
+});
+
+it("verifies ZDN ship output contains release preview fields", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "zero-ship-zdn-"));
+  const out = join(cwd, "ship-test");
+
+  try {
+    const result = await runZero(["ship", "--zdn", "--target", "linux-musl-x64", "examples/direct-exe-return.0", "--out", out], {
+      env: { ...process.env, ZERO_CC: "/usr/bin/false" },
+    });
+    const zdn = result.stdout;
+    assert.ok(zdn.includes("ShipResult"), `missing ShipResult`);
+
+    // Release preview fields
+    assert.ok(zdn.includes("releasePreview"), `missing releasePreview`);
+    assert.ok(zdn.includes("releaseTargetContract"), `missing releaseTargetContract`);
+    assert.ok(zdn.includes("artifacts"), `missing artifacts array`);
+    assert.ok(zdn.includes("stripped-binary"), `missing stripped-binary artifact`);
+    assert.ok(zdn.includes("checksum"), `missing checksum`);
+    assert.ok(zdn.includes("fnv1a64"), `missing checksum algorithm`);
+
+    // Compiler metadata
+    assert.ok(zdn.includes("compilerPhases"), `missing compilerPhases in ship ZDN`);
+    assert.ok(zdn.includes("targetFacts"), `missing targetFacts`);
+    assert.ok(zdn.includes("objectBackend"), `missing objectBackend`);
+
+  } finally {
+    await rm(cwd, { force: true, recursive: true });
+  }
+});
+
+it("produces safetyLevels in fix plan ZDN output", async () => {
+  const fix = await runZero(["fix", "--plan", "--zdn", "examples/does-not-exist.0"]).catch((error) => error);
+  const out = fix.stdout;
+
+  assert.ok(out.includes("FixPlanResult"), `missing FixPlanResult record`);
+  assert.ok(out.includes("safetyLevels"), `missing safetyLevels array`);
+  assert.ok(out.includes("format-only"), `missing format-only safety level`);
+  assert.ok(out.includes("behavior-preserving"), `missing behavior-preserving safety level`);
+  assert.ok(out.includes("api-changing"), `missing api-changing safety level`);
+  assert.ok(out.includes("target-changing"), `missing target-changing safety level`);
+  assert.ok(out.includes("requires-human-review"), `missing requires-human-review safety level`);
+});
+
+it("produces ZDN output for check, test, tokens, parse, and explain", async () => {
     // check --zdn on a valid program
     const check = await runZero(["check", "--zdn", "examples/add.0"]);
     assert.ok(check.stdout.includes("CheckResult"), `expected CheckResult in:\n${check.stdout}`);
