@@ -417,9 +417,14 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad(foo: Foo) -> Void {\n    let value: i32 = foo.1\n}\n", "numeric member access");
   expect_rejects("fn bad(foo: Foo) -> Void {\n    let value: i32 = foo.()\n}\n", "group member access");
   expect_rejects("fn bad(foo: Foo) -> Void {\n    let value: i32 = foo.[0]\n}\n", "index member access");
+  expect_rejects("fn bad(items: Items) -> Void {\n    let value: i32 = items [0]\n}\n", "spaced index access");
   expect_rejects("fn bad(items: Items) -> Void {\n    let value: i32 = items[]\n}\n", "empty index expression");
+  expect_rejects("fn bad(items: Items) -> Void {\n    let value: i32 = items[0, 1]\n}\n", "comma index expression");
   expect_rejects("fn bad() -> Void {\n    check ()\n}\n", "empty grouped check expression");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = ()\n}\n", "empty grouped initializer expression");
+  expect_rejects("fn bad() -> Void {\n    let value: i32 = (1, 2)\n}\n", "comma grouped expression");
+  expect_rejects("fn bad() -> Void {\n    let bytes: [4]u8 = [0_u8; 4, 5]\n}\n", "comma after array repeat count");
+  expect_rejects("fn bad() -> Void {\n    let bytes: [4]u8 = [0_u8, 1_u8; 4]\n}\n", "mixed array literal and repeat");
   expect_rejects("use \"not-module\"\n", "string use import");
   expect_rejects("use std.mem()\n", "call use import");
   expect_rejects("use std.\n", "trailing use import separator");
