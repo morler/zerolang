@@ -16,7 +16,10 @@ bool z_program_graph_direct_roundtrip_graph(const ZProgramGraph *original, const
   bool ok = z_program_graph_lower_to_program_for_roundtrip(original, source_path, &lowered_program, &lowered_input, diag) &&
             z_program_graph_from_program(&lowered_input, &lowered_program, roundtrip);
 
-  if (ok) z_program_graph_semantic_compare(original, roundtrip, comparison);
+  if (ok) {
+    roundtrip->canonical_source = original->canonical_source;
+    z_program_graph_semantic_compare(original, roundtrip, comparison);
+  }
   else if (diag && diag->code == 0) {
     diag->code = 2002;
     diag->path = source_path;

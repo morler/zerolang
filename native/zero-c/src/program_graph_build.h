@@ -8,6 +8,7 @@ typedef struct {
   char *graph_hash;
   char *module_identity;
   const char *lowering;
+  bool canonical_source;
 } ZProgramGraphArtifactSource;
 
 bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source);

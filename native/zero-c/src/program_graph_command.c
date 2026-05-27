@@ -79,7 +79,7 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
   static const ZProgramGraphOutputContract fallback = {
     false,
     "graph requires an output-capable subcommand for --out",
-    "zero graph dump|import|validate|patch|roundtrip --out <program-graph> <input>",
+    "zero graph dump|import|validate|patch|roundtrip --out <program-graph-or-module.0> <input>",
     "zero graph --out",
     "use zero graph view --out <file.0> for generated source views, or choose a graph subcommand with command-specific output",
   };

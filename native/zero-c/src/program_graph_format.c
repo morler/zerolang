@@ -455,7 +455,8 @@ bool z_program_graph_parse_dump(const char *text, ZProgramGraph *out, ZDiag *dia
   }
   out->schema_version = 1;
   NEXT_REQUIRED_LINE();
-  if (!graph_format_text_eq(line, "canonicalSource false")) FAIL("expected canonicalSource false");
+  if (graph_format_text_eq(line, "canonicalSource true")) out->canonical_source = true;
+  else if (!graph_format_text_eq(line, "canonicalSource false")) FAIL("expected canonicalSource field");
   NEXT_REQUIRED_LINE();
   const char *strategy_cursor = line;
   char *strategy = NULL;
@@ -507,9 +508,7 @@ bool z_program_graph_parse_dump(const char *text, ZProgramGraph *out, ZDiag *dia
   line = NULL;
   while (graph_format_next_line(&cursor, &line)) {
     line_no++;
-    bool extra = line[0] != 0;
-    free(line);
-    line = NULL;
+    bool extra = line[0] != 0; free(line); line = NULL;
     if (extra) FAIL_AT(line_no, "unexpected content after graph dump");
   }
   if (validation_ok && !graph_format_identities_match(out)) FAIL_AT(1, "program graph identities do not match graph content");
@@ -559,9 +558,10 @@ bool z_program_graph_load(const char *path, ZProgramGraph *out, ZDiag *diag) {
 bool z_program_graph_save(const char *path, const ZProgramGraph *graph, ZDiag *diag) {
   ZProgramGraphValidation validation = {0};
   if (!z_program_graph_validate(graph, &validation)) return graph_format_storage_validation_fail(path, &validation, diag);
-  ZBuf dump;
-  zbuf_init(&dump);
-  z_program_graph_append_dump(&dump, graph, &validation);
+  ZProgramGraph storage = graph ? *graph : (ZProgramGraph){0};
+  size_t path_len = path ? strlen(path) : 0; if (path_len >= 2 && path[path_len - 2] == '.' && path[path_len - 1] == '0') storage.canonical_source = true;
+  ZBuf dump; zbuf_init(&dump);
+  z_program_graph_append_dump(&dump, &storage, &validation);
   ZProgramGraph parsed;
   if (!z_program_graph_parse_dump(dump.data ? dump.data : "", &parsed, diag)) {
     if (diag) diag->path = path;
@@ -575,7 +575,7 @@ bool z_program_graph_save(const char *path, const ZProgramGraph *graph, ZDiag *d
 }
 
 void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphValidation *validation) {
-  zbuf_appendf(buf, "{\"schemaVersion\":%u,\"canonicalSource\":false,\"idStrategy\":", graph ? graph->schema_version : 1);
+  zbuf_appendf(buf, "{\"schemaVersion\":%u,\"canonicalSource\":%s,\"idStrategy\":", graph ? graph->schema_version : 1, graph && graph->canonical_source ? "true" : "false");
   graph_format_append_quoted(buf, graph ? graph->id_strategy : "deterministic-traversal-r0");
   zbuf_append(buf, ",\"moduleIdentity\":");
   graph_format_append_quoted(buf, graph ? graph->module_identity : "module:main");
@@ -629,7 +629,7 @@ void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZP
 
 void z_program_graph_append_dump(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphValidation *validation) {
   zbuf_appendf(buf, "zero-program-graph v%u\n", graph ? graph->schema_version : 1);
-  zbuf_append(buf, "canonicalSource false\n");
+  zbuf_appendf(buf, "canonicalSource %s\n", graph && graph->canonical_source ? "true" : "false");
   zbuf_append(buf, "idStrategy ");
   graph_format_append_quoted(buf, graph ? graph->id_strategy : "deterministic-traversal-r0");
   zbuf_append_char(buf, '\n');

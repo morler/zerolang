@@ -2269,7 +2269,7 @@ static void append_program_graph_artifact_source_json(ZBuf *buf, const ZProgramG
   if (!z_program_graph_artifact_source_present(source)) return;
   zbuf_append(buf, ",\n  \"graph\": {\"artifact\":");
   append_json_string(buf, source->artifact ? source->artifact : "");
-  zbuf_append(buf, ",\"canonicalSource\":false,\"moduleIdentity\":");
+  zbuf_appendf(buf, ",\"canonicalSource\":%s,\"moduleIdentity\":", source->canonical_source ? "true" : "false");
   append_json_string(buf, source->module_identity ? source->module_identity : "");
   zbuf_append(buf, ",\"graphHash\":");
   append_json_string(buf, source->graph_hash ? source->graph_hash : "");
@@ -3327,10 +3327,10 @@ static void print_help(void) {
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
   printf("  zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n");
-  printf("  zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph> <file.0|file.row|project|zero.json|graph-artifact>\n");
+  printf("  zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-or-module.0> <file.0|file.row|project|zero.json|graph-artifact>\n");
   printf("  zero graph view [--json] --out <file.0> <graph-artifact-or-package>\n");
   printf("  zero graph size [--json] [--target <target>] --out <artifact> <graph-artifact-or-package>\n");
-  printf("  zero graph patch [--json] --out <program-graph> <graph-artifact-or-package> <patch-file>\n");
+  printf("  zero graph patch [--json] --out <program-graph-or-module.0> <graph-artifact-or-package> <patch-file>\n");
   printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package> [-- args...]\n  zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
@@ -3410,10 +3410,10 @@ static void print_command_help(const char *command) {
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
     printf("Usage: zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n\n");
-    printf("Output usage: zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph> <input>\n");
+    printf("Output usage: zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-or-module.0> <input>\n");
     printf("View output usage: zero graph view [--json] --out <file.0> <graph-artifact-or-package>\n");
     printf("Size output usage: zero graph size [--json] [--target <target>] --out <artifact> <input>\n");
-    printf("Patch output usage: zero graph patch [--json] --out <program-graph> <input> <patch-file>\n\n");
+    printf("Patch output usage: zero graph patch [--json] --out <program-graph-or-module.0> <input> <patch-file>\n\n");
     printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package>\n\nRun usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package> [-- args...]\n\nTest usage: zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>\n\n");
     printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph artifacts.\n\n");
     printf("Subcommands:\n");
@@ -3638,6 +3638,17 @@ static bool has_suffix(const char *path, const char *suffix);
 
 static bool is_row_source_path(const char *path) {
   return path && (has_suffix(path, ".0") || has_suffix(path, ".row"));
+}
+
+static bool path_has_program_graph_storage_header(const char *path) {
+  static const char header[] = "zero-program-graph v";
+  if (!path || !path[0]) return false;
+  FILE *file = fopen(path, "rb");
+  if (!file) return false;
+  char bytes[sizeof(header) - 1];
+  size_t read = fread(bytes, 1, sizeof(bytes), file);
+  fclose(file);
+  return read == sizeof(bytes) && memcmp(bytes, header, sizeof(bytes)) == 0;
 }
 
 static void direct_input_push_string(char ***items, size_t *len, const char *value) {
@@ -5567,7 +5578,7 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   if (command && z_program_graph_artifact_source_present(&command->graph_source)) {
     printf(",\n  \"graph\": {\"artifact\": ");
     print_json_string(command->graph_source.artifact ? command->graph_source.artifact : input->source_file);
-    printf(", \"canonicalSource\": false, \"moduleIdentity\": ");
+    printf(", \"canonicalSource\": %s, \"moduleIdentity\": ", command->graph_source.canonical_source ? "true" : "false");
     print_json_string(command->graph_source.module_identity ? command->graph_source.module_identity : "");
     printf(", \"graphHash\": ");
     print_json_string(command->graph_source.graph_hash);
@@ -8118,8 +8129,9 @@ static void append_size_graph_source_json(ZBuf *buf, const GraphSizeSource *grap
   const char *module_identity = graph_source->graph ? graph_source->graph->module_identity : graph_source->artifact_source->module_identity;
   const char *graph_hash = graph_source->graph ? graph_source->graph->graph_hash : graph_source->artifact_source->graph_hash;
   const char *lowering = graph_source->lowering ? graph_source->lowering : (graph_source->artifact_source ? graph_source->artifact_source->lowering : "direct-program-graph");
+  bool canonical_source = graph_source->graph ? graph_source->graph->canonical_source : graph_source->artifact_source->canonical_source;
   zbuf_append(buf, ",\n  \"graph\": {\"artifact\": "); append_json_string(buf, artifact ? artifact : "");
-  zbuf_append(buf, ", \"canonicalSource\": false, \"moduleIdentity\": "); append_json_string(buf, module_identity ? module_identity : "");
+  zbuf_appendf(buf, ", \"canonicalSource\": %s, \"moduleIdentity\": ", canonical_source ? "true" : "false"); append_json_string(buf, module_identity ? module_identity : "");
   zbuf_append(buf, ", \"graphHash\": "); append_json_string(buf, graph_hash ? graph_hash : "");
   zbuf_append(buf, ", \"lowering\": "); append_json_string(buf, lowering ? lowering : "direct-program-graph");
   zbuf_append(buf, "}");
@@ -9413,7 +9425,7 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
 static void append_graph_validate_json(ZBuf *buf, const Command *command, const ZProgramGraph *graph, const ZProgramGraphValidation *validation) {
   zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"artifact\": ");
   append_json_string(buf, command->input);
-  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"moduleIdentity\": ");
+  zbuf_appendf(buf, ",\n  \"canonicalSource\": %s,\n  \"moduleIdentity\": ", graph && graph->canonical_source ? "true" : "false");
   append_json_string(buf, graph ? graph->module_identity : "");
   zbuf_append(buf, ",\n  \"graphHash\": ");
   append_json_string(buf, graph ? graph->graph_hash : "");
@@ -9435,7 +9447,7 @@ static void append_graph_validate_json(ZBuf *buf, const Command *command, const 
 static void append_graph_view_json(ZBuf *buf, const Command *command, const ZProgramGraph *graph, const char *view) {
   zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"artifact\": ");
   append_json_string(buf, command->input);
-  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"moduleIdentity\": ");
+  zbuf_appendf(buf, ",\n  \"canonicalSource\": %s,\n  \"moduleIdentity\": ", graph && graph->canonical_source ? "true" : "false");
   append_json_string(buf, graph ? graph->module_identity : "");
   zbuf_append(buf, ",\n  \"graphHash\": ");
   append_json_string(buf, graph ? graph->graph_hash : "");
@@ -9468,7 +9480,7 @@ static void append_graph_import_json(ZBuf *buf, const Command *command, const So
   zbuf_append(buf, validation && validation->ok ? "true" : "false");
   zbuf_append(buf, ",\n  \"sourceFile\": ");
   append_json_string(buf, input && input->source_file ? input->source_file : command->input);
-  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"moduleIdentity\": ");
+  zbuf_appendf(buf, ",\n  \"canonicalSource\": %s,\n  \"moduleIdentity\": ", graph && graph->canonical_source ? "true" : "false");
   append_json_string(buf, graph ? graph->module_identity : "");
   zbuf_append(buf, ",\n  \"graphHash\": ");
   append_json_string(buf, graph ? graph->graph_hash : "");
@@ -9518,7 +9530,7 @@ static void append_graph_check_json(
   zbuf_append(buf, ok ? "true" : "false");
   zbuf_append(buf, ",\n  \"artifact\": ");
   append_json_string(buf, command->input);
-  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"moduleIdentity\": ");
+  zbuf_appendf(buf, ",\n  \"canonicalSource\": %s,\n  \"moduleIdentity\": ", graph && graph->canonical_source ? "true" : "false");
   append_json_string(buf, graph ? graph->module_identity : "");
   zbuf_append(buf, ",\n  \"graphHash\": ");
   append_json_string(buf, graph ? graph->graph_hash : "");
@@ -9633,7 +9645,7 @@ static void append_graph_patch_json(ZBuf *buf, const Command *command, const ZPr
   append_json_string(buf, command->input);
   zbuf_append(buf, ",\n  \"patch\": ");
   append_json_string(buf, command->patch_file);
-  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"originalGraphHash\": ");
+  zbuf_appendf(buf, ",\n  \"canonicalSource\": %s,\n  \"originalGraphHash\": ", graph && graph->canonical_source ? "true" : "false");
   append_json_string(buf, original_hash ? original_hash : "");
   zbuf_append(buf, ",\n  \"patchedGraphHash\": ");
   if (ok) append_json_string(buf, graph && graph->graph_hash ? graph->graph_hash : "");
@@ -9695,7 +9707,7 @@ static void append_graph_roundtrip_json(
   zbuf_append(buf, input_field && input_field[0] ? input_field : "sourceFile");
   zbuf_append(buf, "\": ");
   append_json_string(buf, input_value ? input_value : command->input);
-  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"semanticStable\": ");
+  zbuf_appendf(buf, ",\n  \"canonicalSource\": %s,\n  \"semanticStable\": ", original && original->canonical_source ? "true" : "false");
   zbuf_append(buf, ok ? "true" : "false");
   zbuf_append(buf, ",\n  \"lowering\": ");
   append_json_string(buf, lowering && lowering[0] ? lowering : "direct-program-graph");
@@ -10028,6 +10040,10 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
   if (!command || !command->command || !command->input || strcmp(command->command, "graph") != 0 || !command->kind) return true;
   ZProgramGraphInputMode input_mode = z_program_graph_command_input_mode(command->kind);
   if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE || input_mode == Z_PROGRAM_GRAPH_INPUT_UNKNOWN) return true;
+  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && path_has_program_graph_storage_header(command->input)) {
+    if (artifact_input) *artifact_input = true;
+    return true;
+  }
   if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && is_row_source_path(command->input)) return true;
 
   char *artifact_path = NULL;

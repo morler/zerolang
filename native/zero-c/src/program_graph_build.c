@@ -30,6 +30,7 @@ bool z_program_graph_prepare_artifact_input(const char *artifact_path, const ZTa
     source->graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
     source->module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
     source->lowering = "direct-program-graph";
+    source->canonical_source = graph.canonical_source;
   }
   z_program_graph_free(&graph);
   return true;
