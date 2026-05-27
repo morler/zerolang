@@ -5,50 +5,50 @@
 
 typedef struct {
   const char *name;
-  bool uses_artifact_input;
+  ZProgramGraphInputMode input_mode;
   bool supports_out;
   ZProgramGraphOutputContract out_contract;
 } ZProgramGraphCommandKind;
 
-#define GRAPH_OUT(name, artifact_input) \
-  {name, artifact_input, true, {true, NULL, NULL, NULL, NULL}}
-#define GRAPH_NO_OUT(name, artifact_input, message, expected, actual, help) \
-  {name, artifact_input, false, {false, message, expected, actual, help}}
+#define GRAPH_OUT(name, input_mode) \
+  {name, input_mode, true, {true, NULL, NULL, NULL, NULL}}
+#define GRAPH_NO_OUT(name, input_mode, message, expected, actual, help) \
+  {name, input_mode, false, {false, message, expected, actual, help}}
 
 static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
-  GRAPH_OUT("dump", false),
-  GRAPH_OUT("import", false),
+  GRAPH_OUT("dump", Z_PROGRAM_GRAPH_INPUT_SOURCE),
+  GRAPH_OUT("import", Z_PROGRAM_GRAPH_INPUT_SOURCE),
   GRAPH_NO_OUT(
     "inspect",
-    false,
+    Z_PROGRAM_GRAPH_INPUT_SOURCE,
     "graph inspect does not support --out",
     "zero graph inspect [--json] <file.0|file.row|project|zero.json>",
     "zero graph inspect --out",
     "use zero graph dump or zero graph import with --out when you need a ProgramGraph artifact"
   ),
-  GRAPH_OUT("validate", true),
-  GRAPH_OUT("view", true),
+  GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_NO_OUT(
     "check",
-    true,
+    Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
     "graph check does not write generated source views",
     "zero graph view --out <file.0> <graph-artifact-or-package>",
     "zero graph check --out",
     "run zero graph view to render a generated source view, or run zero graph check without --out to typecheck the artifact"
   ),
-  GRAPH_OUT("size", true),
-  GRAPH_OUT("build", true),
-  GRAPH_OUT("run", true),
+  GRAPH_OUT("size", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("build", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("run", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_NO_OUT(
     "test",
-    true,
+    Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
     "graph test does not support --out",
     "zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>",
     "zero graph test --out",
     "test results are reported on stdout; remove --out"
   ),
-  GRAPH_OUT("patch", true),
-  GRAPH_OUT("roundtrip", false),
+  GRAPH_OUT("patch", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("roundtrip", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
 };
 
 #undef GRAPH_OUT
@@ -65,9 +65,9 @@ bool z_program_graph_command_kind_is_known(const char *kind) {
   return graph_kind(kind) != NULL;
 }
 
-bool z_program_graph_command_kind_uses_artifact_input(const char *kind) {
+ZProgramGraphInputMode z_program_graph_command_input_mode(const char *kind) {
   const ZProgramGraphCommandKind *item = graph_kind(kind);
-  return item && item->uses_artifact_input;
+  return item ? item->input_mode : Z_PROGRAM_GRAPH_INPUT_UNKNOWN;
 }
 
 bool z_program_graph_command_kind_supports_out(const char *kind) {

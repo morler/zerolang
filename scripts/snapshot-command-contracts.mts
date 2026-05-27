@@ -727,6 +727,14 @@ const graphManifestTestJson = json(["graph", "test", "--json", graphManifestPack
 assert.equal(graphManifestTestJson.ok, true);
 assert.equal(graphManifestTestJson.graph.artifact, graphManifestArtifactPath);
 assert.equal(graphManifestTestJson.testDiscovery.mode, "package-graph");
+const graphManifestRoundtripJson = json(["graph", "roundtrip", "--json", graphManifestPackageDir]).body;
+assert.equal(graphManifestRoundtripJson.ok, true);
+assert.equal(graphManifestRoundtripJson.artifact, graphManifestArtifactPath);
+assert.equal(graphManifestRoundtripJson.semanticStable, true);
+assert.equal(graphManifestRoundtripJson.lowering, "direct-program-graph");
+assert.equal(graphManifestRoundtripJson.moduleIdentity, "package:test-app@0.1.0");
+assert.equal(graphManifestRoundtripJson.roundtripModuleIdentity, "package:test-app@0.1.0");
+assert.equal(graphManifestRoundtripJson.view, null);
 const directGraphManifestCheckJson = json(["check", "--json", graphManifestPackageDir]).body;
 assert.equal(directGraphManifestCheckJson.ok, true);
 assert.equal(directGraphManifestCheckJson.graph.artifact, graphManifestArtifactPath);
