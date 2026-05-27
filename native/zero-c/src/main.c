@@ -10023,20 +10023,30 @@ static int run_graph_artifact_roundtrip_command(const Command *command, ZDiag *d
   return ok ? 0 : 1;
 }
 
-static bool graph_roundtrip_input_is_artifact(const Command *command) {
-  if (!command || !command->input || is_row_source_path(command->input)) return false;
-  char *manifest_path = z_manifest_path_for_input(command->input);
-  bool package_input = manifest_path != NULL;
-  free(manifest_path);
-  return !package_input;
-}
+static bool resolve_graph_command_manifest_input(Command *command, bool *artifact_input, ZDiag *diag) {
+  if (artifact_input) *artifact_input = false;
+  if (!command || !command->command || !command->input || strcmp(command->command, "graph") != 0 || !command->kind) return true;
+  ZProgramGraphInputMode input_mode = z_program_graph_command_input_mode(command->kind);
+  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE || input_mode == Z_PROGRAM_GRAPH_INPUT_UNKNOWN) return true;
+  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && is_row_source_path(command->input)) return true;
 
-static bool resolve_graph_command_manifest_input(Command *command, ZDiag *diag) {
-  if (!command || !command->command || !command->input || strcmp(command->command, "graph") != 0 || !z_program_graph_command_kind_uses_artifact_input(command->kind)) return true;
   char *artifact_path = NULL;
   bool handled = false;
-  if (!z_resolve_manifest_graph_artifact_path(command->input, &artifact_path, &handled, true, diag)) return false;
-  if (handled) command->input = artifact_path;
+  bool require_graph = input_mode == Z_PROGRAM_GRAPH_INPUT_ARTIFACT;
+  if (!z_resolve_manifest_graph_artifact_path(command->input, &artifact_path, &handled, require_graph, diag)) return false;
+  if (handled) {
+    command->input = artifact_path;
+    if (artifact_input) *artifact_input = true;
+    return true;
+  }
+  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT) {
+    char *manifest_path = z_manifest_path_for_input(command->input);
+    if (manifest_path) {
+      free(manifest_path);
+      return true;
+    }
+  }
+  if (artifact_input) *artifact_input = true;
   return true;
 }
 
@@ -10402,7 +10412,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!resolve_graph_command_manifest_input(&command, &diag)) {
+  bool graph_command_artifact_input = false;
+  if (!resolve_graph_command_manifest_input(&command, &graph_command_artifact_input, &diag)) {
     if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     return 1;
@@ -10414,7 +10425,7 @@ int main(int argc, char **argv) {
     if (strcmp(command.kind, "check") == 0) return run_graph_check_command(&command, target, &diag);
     if (strcmp(command.kind, "size") == 0) return run_graph_size_command(&command, target, &diag);
     if (strcmp(command.kind, "patch") == 0) return run_graph_patch_command(&command, &diag);
-    if (strcmp(command.kind, "roundtrip") == 0 && graph_roundtrip_input_is_artifact(&command)) return run_graph_artifact_roundtrip_command(&command, &diag);
+    if (strcmp(command.kind, "roundtrip") == 0 && graph_command_artifact_input) return run_graph_artifact_roundtrip_command(&command, &diag);
   }
 
   if (strcmp(command.command, "fmt") == 0) {
