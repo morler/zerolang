@@ -312,21 +312,21 @@ for (const [command, expected] of [
 }
 const graphHelp = zero(["graph", "--help"]).stdout;
 assert.match(graphHelp, /zero graph \[dump\|import\|validate\|roundtrip\] \[--json\] --out <program-graph-or-module\.0> <input>/);
-assert.match(graphHelp, /zero graph view \[--json\] --out <file\.0> <graph-artifact-or-package>/);
+assert.match(graphHelp, /zero graph view \[--json\] --out <file\.0> <program-graph-or-package>/);
 assert.match(graphHelp, /zero graph size \[--json\] \[--target <target>\] --out <artifact> <input>/);
 assert.match(graphHelp, /zero graph patch \[--json\] --out <program-graph-or-module\.0> <input> <patch-file>/);
-assert.match(graphHelp, /zero graph build \[--json\] \[--emit exe\|obj\].*<graph-artifact-or-package>/);
-assert.match(graphHelp, /zero graph run \[--target <host-target>\].*<graph-artifact-or-package> \[-- args\.\.\.\]/);
-assert.match(graphHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <graph-artifact-or-package>/);
+assert.match(graphHelp, /zero graph build \[--json\] \[--emit exe\|obj\].*<program-graph-or-package>/);
+assert.match(graphHelp, /zero graph run \[--target <host-target>\].*<program-graph-or-package> \[-- args\.\.\.\]/);
+assert.match(graphHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <program-graph-or-package>/);
 assert.doesNotMatch(graphHelp, /zero graph check[^\n]*--out/);
 const rootHelp = zero(["--help"]).stdout;
-assert.match(rootHelp, /zero graph \[dump\|import\|validate\|roundtrip\] \[--json\] --out <program-graph-or-module\.0> <file\.0\|file\.row\|project\|zero\.json\|graph-artifact>/);
-assert.match(rootHelp, /zero graph view \[--json\] --out <file\.0> <graph-artifact-or-package>/);
-assert.match(rootHelp, /zero graph size \[--json\] \[--target <target>\] --out <artifact> <graph-artifact-or-package>/);
-assert.match(rootHelp, /zero graph patch \[--json\] --out <program-graph-or-module\.0> <graph-artifact-or-package> <patch-file>/);
-assert.match(rootHelp, /zero graph build \[--json\] \[--emit exe\|obj\].*<graph-artifact-or-package>/);
-assert.match(rootHelp, /zero graph run \[--target <host-target>\].*<graph-artifact-or-package> \[-- args\.\.\.\]/);
-assert.match(rootHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <graph-artifact-or-package>/);
+assert.match(rootHelp, /zero graph \[dump\|import\|validate\|roundtrip\] \[--json\] --out <program-graph-or-module\.0> <input>/);
+assert.match(rootHelp, /zero graph view \[--json\] --out <file\.0> <program-graph-or-package>/);
+assert.match(rootHelp, /zero graph size \[--json\] \[--target <target>\] --out <artifact> <program-graph-or-package>/);
+assert.match(rootHelp, /zero graph patch \[--json\] --out <program-graph-or-module\.0> <program-graph-or-package> <patch-file>/);
+assert.match(rootHelp, /zero graph build \[--json\] \[--emit exe\|obj\].*<program-graph-or-package>/);
+assert.match(rootHelp, /zero graph run \[--target <host-target>\].*<program-graph-or-package> \[-- args\.\.\.\]/);
+assert.match(rootHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <program-graph-or-package>/);
 
 const graphDump = zero(["graph", "dump", "examples/hello.0"]).stdout;
 const graphDumpAgain = zero(["graph", "dump", "examples/hello.0"]).stdout;
@@ -647,7 +647,7 @@ assert.equal(directGraphSourceTestJson.sourceFile, graphTestSourceStoragePath);
 assert.equal(directGraphSourceTestJson.graph.artifact, graphTestSourceStoragePath);
 assert.equal(directGraphSourceTestJson.graph.canonicalSource, true);
 assert.equal(directGraphSourceTestJson.graph.lowering, "direct-program-graph");
-assert.equal(directGraphSourceTestJson.testDiscovery.mode, "graph-artifact");
+assert.equal(directGraphSourceTestJson.testDiscovery.mode, "program-graph");
 assert.equal(directGraphSourceTestJson.selectedTests, 1);
 assert.equal(directGraphSourceTestJson.results[0].status, "passed");
 const directGraphSourceShipJson = json(["ship", "--json", "--target", "linux-musl-x64", "--out", directGraphSourceShipPath, graphSourceStoragePath]).body;
@@ -698,7 +698,7 @@ assert.equal(graphCheckJson.view, null);
 const graphCheckOutJson = json(["graph", "check", "--json", "--out", graphCheckViewPath, graphDumpPath], { allowFailure: true });
 assert.notEqual(graphCheckOutJson.code, 0);
 assert.equal(graphCheckOutJson.body.diagnostics[0].message, "graph check does not write generated source views");
-assert.equal(graphCheckOutJson.body.diagnostics[0].expected, "zero graph view --out <file.0> <graph-artifact-or-package>");
+assert.equal(graphCheckOutJson.body.diagnostics[0].expected, "zero graph view --out <file.0> <program-graph-or-package>");
 const graphSizeJson = json(["graph", "size", "--json", "--target", "linux-musl-x64", graphDumpPath]).body;
 assert.equal(graphSizeJson.schemaVersion, 1);
 assert.equal(graphSizeJson.sourceFile, graphDumpPath);
@@ -714,7 +714,7 @@ assert.equal(graphSizeJson.sizeBreakdown.target, "linux-musl-x64");
 assert.equal(graphSizeJson.objectBackend.objectEmission.path, "direct-elf64-object");
 assert.equal(graphSizeJson.artifactPath, null);
 assert(graphSizeJson.compilerCaches.every((cache) => cache.sourceKind === "program-graph" && cache.graphHash === graphDumpJson.graphHash));
-assert.equal(graphSizeJson.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "graph artifact");
+assert.equal(graphSizeJson.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "ProgramGraph input");
 assert.equal(graphSizeJson.incrementalInvalidation.sourceKind, "program-graph");
 assert.equal(graphSizeJson.incrementalInvalidation.graphInput.artifact, graphDumpPath);
 assert.equal(graphSizeJson.incrementalInvalidation.graphInput.graphHash, graphDumpJson.graphHash);
@@ -769,7 +769,7 @@ assert.equal(zero(["graph", "test", graphTestDumpPath]).stdout, "1 test(s) ok\n"
 const graphTestOutJson = json(["graph", "test", "--json", "--out", graphCheckViewPath, graphTestDumpPath], { allowFailure: true });
 assert.notEqual(graphTestOutJson.code, 0);
 assert.equal(graphTestOutJson.body.diagnostics[0].message, "graph test does not support --out");
-assert.equal(graphTestOutJson.body.diagnostics[0].expected, "zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>");
+assert.equal(graphTestOutJson.body.diagnostics[0].expected, "zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>");
 const graphTestJson = json(["graph", "test", "--json", "--filter", "addition", graphTestDumpPath]).body;
 assert.equal(graphTestJson.ok, true);
 assert.equal(graphTestJson.sourceFile, graphTestDumpPath);
@@ -778,7 +778,7 @@ assert.equal(graphTestJson.graph.canonicalSource, false);
 assert.equal(graphTestJson.graph.lowering, "direct-program-graph");
 assert.match(graphTestJson.graph.graphHash, /^graph:[0-9a-f]{16}$/);
 assert.equal(graphTestJson.testBackend, "direct-frontend");
-assert.equal(graphTestJson.testDiscovery.mode, "graph-artifact");
+assert.equal(graphTestJson.testDiscovery.mode, "program-graph");
 assert.equal(graphTestJson.testDiscovery.filter, "addition");
 assert.equal(graphTestJson.selectedTests, 1);
 assert.equal(graphTestJson.results[0].status, "passed");
@@ -845,7 +845,7 @@ assert.equal(directGraphManifestCheckJson.package.name, "graph-manifest-package"
 assert.equal(directGraphManifestCheckJson.package.manifestPath, join(graphManifestPackageDir, "zero.json"));
 assert.notEqual(directGraphManifestCheckJson.package.manifestHash, "0000000000000000");
 assert(directGraphManifestCheckJson.compilerCaches.every((cache) => cache.sourceKind === "program-graph" && cache.graphHash === directGraphManifestCheckJson.graph.graphHash));
-assert.equal(directGraphManifestCheckJson.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "graph artifact");
+assert.equal(directGraphManifestCheckJson.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "ProgramGraph input");
 assert.equal(directGraphManifestCheckJson.interfaceFingerprints.sourceKind, "program-graph");
 assert.equal(directGraphManifestCheckJson.interfaceFingerprints.graphHash, directGraphManifestCheckJson.graph.graphHash);
 assert.equal(directGraphManifestCheckJson.incrementalInvalidation.sourceKind, "program-graph");
@@ -928,6 +928,7 @@ assert.equal(directGraphHostLeakJson.body.diagnostics[0].message, "foreign targe
 const graphManifestMissingJson = json(["graph", "check", "--json", "conformance/packages/test-app"], { allowFailure: true });
 assert.equal(graphManifestMissingJson.code, 1);
 assert.equal(graphManifestMissingJson.body.diagnostics[0].message, "zero.json is missing targets.cli.graph");
+assert.equal(graphManifestMissingJson.body.diagnostics[0].expected, "targets.cli.graph pointing at saved ProgramGraph input");
 writeFileSync(graphSizeNoisePatchPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,
@@ -1544,7 +1545,7 @@ writeFileSync(graphFailedArtifactPath, [
 ].join("\n"));
 const graphFailedArtifact = json(["graph", "validate", "--json", graphFailedArtifactPath], { allowFailure: true });
 assert(graphFailedArtifact.code);
-assert.equal(graphFailedArtifact.body.diagnostics[0].message, "program graph artifact reports failed validation");
+assert.equal(graphFailedArtifact.body.diagnostics[0].message, "program graph input reports failed validation");
 const graphTrailingArtifactPath = join(outDir, "trailing-content.program-graph");
 writeFileSync(graphTrailingArtifactPath, `${graphDump}\nextra\n`);
 const graphTrailingArtifact = json(["graph", "validate", "--json", graphTrailingArtifactPath], { allowFailure: true });

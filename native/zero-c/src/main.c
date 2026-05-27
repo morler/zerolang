@@ -1905,11 +1905,11 @@ static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, 
     wrote = true; \
   } while (0)
   bool wrote = false;
-  APPEND_CACHE("parseTree", parse_key, input && input->parse_cache_hit, graph_input ? "graph artifact" : "source");
+  APPEND_CACHE("parseTree", parse_key, input && input->parse_cache_hit, graph_input ? "ProgramGraph input" : "source");
   APPEND_CACHE("interface", interface_key, input && input->interface_cache_hit, graph_input ? "graph public symbols/import graph" : "public symbols/import graph");
-  APPEND_CACHE("checkedBody", check_key, input && input->check_cache_hit, graph_input ? "graph artifact or target" : "source or target");
-  APPEND_CACHE("specialization", specialization_key, input && input->specialization_cache_hit, graph_input ? "graph artifact, target, or profile" : "source, target, or profile");
-  APPEND_CACHE("emittedObject", object_key, input && input->emitted_object_cache_hit, graph_input ? "graph artifact, target, profile, or backend" : "source, target, profile, or backend");
+  APPEND_CACHE("checkedBody", check_key, input && input->check_cache_hit, graph_input ? "ProgramGraph input or target" : "source or target");
+  APPEND_CACHE("specialization", specialization_key, input && input->specialization_cache_hit, graph_input ? "ProgramGraph input, target, or profile" : "source, target, or profile");
+  APPEND_CACHE("emittedObject", object_key, input && input->emitted_object_cache_hit, graph_input ? "ProgramGraph input, target, profile, or backend" : "source, target, profile, or backend");
 #undef APPEND_CACHE
   zbuf_append(buf, "]");
 }
@@ -2314,7 +2314,7 @@ static void append_test_json_location(ZBuf *buf, const SourceInput *input, int p
 
 static const char *test_discovery_mode(const SourceInput *input, const Command *command) {
   if (command && z_program_graph_artifact_source_present(&command->graph_source)) {
-    return input && input->package_name && input->package_name[0] ? "package-graph" : "graph-artifact";
+    return input && input->package_name && input->package_name[0] ? "package-graph" : "program-graph";
   }
   return input && input->package_root ? "package" : "single-file";
 }
@@ -3326,12 +3326,12 @@ static void print_help(void) {
   printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n");
-  printf("  zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-or-module.0> <file.0|file.row|project|zero.json|graph-artifact>\n");
-  printf("  zero graph view [--json] --out <file.0> <graph-artifact-or-package>\n");
-  printf("  zero graph size [--json] [--target <target>] --out <artifact> <graph-artifact-or-package>\n");
-  printf("  zero graph patch [--json] --out <program-graph-or-module.0> <graph-artifact-or-package> <patch-file>\n");
-  printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package> [-- args...]\n  zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>\n");
+  printf("  zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <input> [patch-file]\n");
+  printf("  zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-or-module.0> <input>\n");
+  printf("  zero graph view [--json] --out <file.0> <program-graph-or-package>\n");
+  printf("  zero graph size [--json] [--target <target>] --out <artifact> <program-graph-or-package>\n");
+  printf("  zero graph patch [--json] --out <program-graph-or-module.0> <program-graph-or-package> <patch-file>\n");
+  printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]\n  zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
   printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
@@ -3409,23 +3409,23 @@ static void print_command_help(const char *command) {
     printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
-    printf("Usage: zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n\n");
+    printf("Usage: zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <input> [patch-file]\n\n");
     printf("Output usage: zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-or-module.0> <input>\n");
-    printf("View output usage: zero graph view [--json] --out <file.0> <graph-artifact-or-package>\n");
+    printf("View output usage: zero graph view [--json] --out <file.0> <program-graph-or-package>\n");
     printf("Size output usage: zero graph size [--json] [--target <target>] --out <artifact> <input>\n");
     printf("Patch output usage: zero graph patch [--json] --out <program-graph-or-module.0> <input> <patch-file>\n\n");
-    printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package>\n\nRun usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package> [-- args...]\n\nTest usage: zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>\n\n");
-    printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph artifacts.\n\n");
+    printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package>\n\nRun usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]\n\nTest usage: zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>\n\n");
+    printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph inputs.\n\n");
     printf("Subcommands:\n");
     printf("  dump      print or write only the deterministic ProgramGraph\n");
-    printf("  import    convert current Zero source into a deterministic ProgramGraph artifact\n");
+    printf("  import    convert current Zero source into deterministic ProgramGraph input\n");
     printf("  inspect   report semantic graph and compiler facts as JSON\n");
-    printf("  validate  read a ProgramGraph artifact and optionally write its canonical form\n");
-    printf("  view      render a ProgramGraph artifact as a generated Zero view\n");
-    printf("  check     typecheck a ProgramGraph artifact through direct graph lowering\n");
-    printf("  size      report size, helper, runtime, and backend facts for a ProgramGraph artifact\n");
-    printf("  build     build a ProgramGraph artifact through direct graph lowering\n  run       build and run a ProgramGraph artifact through direct graph lowering\n  test      run test blocks from a ProgramGraph artifact through direct graph lowering\n");
-    printf("  patch     apply checked edits to a ProgramGraph artifact\n");
+    printf("  validate  read ProgramGraph input and optionally write its canonical form\n");
+    printf("  view      render ProgramGraph input as a generated Zero view\n");
+    printf("  check     typecheck ProgramGraph input through direct graph lowering\n");
+    printf("  size      report size, helper, runtime, and backend facts for ProgramGraph input\n");
+    printf("  build     build ProgramGraph input through direct graph lowering\n  run       build and run ProgramGraph input through direct graph lowering\n  test      run test blocks from ProgramGraph input through direct graph lowering\n");
+    printf("  patch     apply checked edits to ProgramGraph input\n");
     printf("  roundtrip compare graph semantics after direct ProgramGraph lowering\n");
   } else if (strcmp(command, "doc") == 0) {
     printf("Usage: zero doc [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
@@ -9819,7 +9819,7 @@ static int run_graph_patch_command(const Command *command, ZDiag *diag) {
     diag->column = 1;
     diag->length = 1;
     snprintf(diag->message, sizeof(diag->message), "graph patch requires a patch file");
-    snprintf(diag->expected, sizeof(diag->expected), "zero graph patch <graph-artifact> <patch-file>");
+    snprintf(diag->expected, sizeof(diag->expected), "zero graph patch <program-graph> <patch-file>");
     snprintf(diag->actual, sizeof(diag->actual), "missing patch file");
     snprintf(diag->help, sizeof(diag->help), "pass a zero-program-graph-patch v1 file as the second positional argument");
     if (command->json) print_diag_json(diag->path ? diag->path : command->input, diag);

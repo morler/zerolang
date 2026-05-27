@@ -486,7 +486,7 @@ bool z_program_graph_parse_dump(const char *text, ZProgramGraph *out, ZDiag *dia
     size_t validation_line = line_no;
     NEXT_REQUIRED_LINE();
     if (strncmp(line, "diagnostic ", 11) != 0) FAIL("expected diagnostic field after failed validation");
-    FAIL_AT(validation_line, "program graph artifact reports failed validation");
+    FAIL_AT(validation_line, "program graph input reports failed validation");
   }
   NEXT_REQUIRED_LINE();
   if (!graph_format_parse_counts_line(line, &node_count, &edge_count)) FAIL("expected node and edge counts");

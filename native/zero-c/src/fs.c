@@ -717,9 +717,9 @@ static void set_manifest_graph_diag(ZDiag *diag, const char *manifest_path, cons
   diag->column = 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "%s", message ? message : "invalid graph target");
-  snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "targets.cli.graph pointing at a ProgramGraph artifact");
+  snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "targets.cli.graph pointing at saved ProgramGraph input");
   snprintf(diag->actual, sizeof(diag->actual), "%s", actual ? actual : "invalid targets.cli.graph");
-  snprintf(diag->help, sizeof(diag->help), "%s", help ? help : "set targets.cli.graph to a saved ProgramGraph artifact");
+  snprintf(diag->help, sizeof(diag->help), "%s", help ? help : "set targets.cli.graph to saved ProgramGraph input");
 }
 
 bool z_resolve_manifest_graph_artifact_path(const char *input_path, char **out_artifact_path, bool *handled, bool require_graph, ZDiag *diag) {
@@ -751,9 +751,9 @@ bool z_resolve_manifest_graph_artifact_path(const char *input_path, char **out_a
       set_manifest_graph_diag(diag,
                               manifest_path,
                               "zero.json is missing targets.cli.graph",
-                              "targets.cli.graph pointing at a saved ProgramGraph artifact",
+                              "targets.cli.graph pointing at saved ProgramGraph input",
                               "missing targets.cli.graph",
-                              "run zero graph import --out <artifact> <source>, then set targets.cli.graph");
+                              "run zero graph import --out <program-graph> <source>, then set targets.cli.graph");
       ok = false;
     }
   } else {
@@ -761,10 +761,10 @@ bool z_resolve_manifest_graph_artifact_path(const char *input_path, char **out_a
     if (!artifact_path || !file_exists(artifact_path)) {
       set_manifest_graph_diag(diag,
                               manifest_path,
-                              "target graph artifact does not exist",
+                              "target ProgramGraph input does not exist",
                               artifact_path ? artifact_path : parsed_manifest.graph_path,
-                              "missing ProgramGraph artifact",
-                              "create the artifact or update targets.cli.graph");
+                              "missing ProgramGraph input",
+                              "create the ProgramGraph input or update targets.cli.graph");
       ok = false;
     } else {
       resolved_graph = true;

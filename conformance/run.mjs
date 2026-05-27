@@ -2784,7 +2784,7 @@ await writeFile(programGraphFailedArtifactPath, [
 ].join("\n"));
 const programGraphFailedArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphFailedArtifactPath]).catch((error) => error);
 assert(programGraphFailedArtifact.code);
-assert.equal(JSON.parse(programGraphFailedArtifact.stdout).diagnostics[0].message, "program graph artifact reports failed validation");
+assert.equal(JSON.parse(programGraphFailedArtifact.stdout).diagnostics[0].message, "program graph input reports failed validation");
 const programGraphTrailingArtifactPath = `${outDir}/trailing-content.program-graph`;
 await writeFile(programGraphTrailingArtifactPath, `${programGraphDump}\nextra\n`);
 const programGraphTrailingArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphTrailingArtifactPath]).catch((error) => error);

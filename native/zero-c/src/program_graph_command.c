@@ -24,7 +24,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "graph inspect does not support --out",
     "zero graph inspect [--json] <file.0|file.row|project|zero.json>",
     "zero graph inspect --out",
-    "use zero graph dump or zero graph import with --out when you need a ProgramGraph artifact"
+    "use zero graph dump or zero graph import with --out when you need saved ProgramGraph input"
   ),
   GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
@@ -32,9 +32,9 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "check",
     Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
     "graph check does not write generated source views",
-    "zero graph view --out <file.0> <graph-artifact-or-package>",
+    "zero graph view --out <file.0> <program-graph-or-package>",
     "zero graph check --out",
-    "run zero graph view to render a generated source view, or run zero graph check without --out to typecheck the artifact"
+    "run zero graph view to render a generated source view, or run zero graph check without --out to typecheck the ProgramGraph input"
   ),
   GRAPH_OUT("size", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("build", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
@@ -43,7 +43,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "test",
     Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
     "graph test does not support --out",
-    "zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>",
+    "zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>",
     "zero graph test --out",
     "test results are reported on stdout; remove --out"
   ),
