@@ -164,7 +164,7 @@ static bool fmt_line_opens_multiline_brace(const CanonFormat *fmt) {
     fmt_is_word(first, "choice") || fmt_is_word(first, "interface") || fmt_is_word(first, "extern") || fmt_is_word(first, "fn") ||
     fmt_is_word(first, "pub") || fmt_is_word(first, "export") || fmt_is_word(first, "test") ||
     fmt_is_word(first, "if") || fmt_is_word(first, "else") || fmt_is_word(first, "while") ||
-    fmt_is_word(first, "for") || fmt_is_word(first, "match") || fmt_is_word(first, "defer") ||
+    fmt_is_word(first, "for") || fmt_is_word(first, "match") ||
     fmt_is_symbol(first, ".");
 }
 

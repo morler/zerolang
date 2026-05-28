@@ -392,6 +392,28 @@ static size_t canon_ast_find_top_level(const ZCanonicalTokenVec *tokens, size_t 
   return CANON_AST_NO_INDEX;
 }
 
+static size_t canon_ast_find_rescue_err(const ZCanonicalTokenVec *tokens, size_t rescue, size_t end) {
+  int paren = 0, bracket = 0, brace = 0, nested = 0;
+  for (size_t i = rescue + 1; i < end; i++) {
+    const ZCanonicalToken *token = &tokens->items[i];
+    const ZCanonicalToken *previous = i > rescue + 1 ? &tokens->items[i - 1] : NULL;
+    const ZCanonicalToken *next = i + 1 < end ? &tokens->items[i + 1] : NULL;
+    bool top = paren == 0 && bracket == 0 && brace == 0;
+    if (top && canon_ast_is_text(token, "rescue")) nested++;
+    else if (top && canon_ast_is_text(token, "err") && !canon_ast_is_text(previous, ".") && !canon_ast_is_text(next, ".")) {
+      if (nested == 0) return i;
+      nested--;
+    }
+    if (canon_ast_is_text(token, "(")) paren++;
+    else if (canon_ast_is_text(token, ")") && paren > 0) paren--;
+    else if (canon_ast_is_text(token, "[")) bracket++;
+    else if (canon_ast_is_text(token, "]") && bracket > 0) bracket--;
+    else if (canon_ast_is_text(token, "{")) brace++;
+    else if (canon_ast_is_text(token, "}") && brace > 0) brace--;
+  }
+  return CANON_AST_NO_INDEX;
+}
+
 static size_t canon_ast_line_end(const ZCanonicalTokenVec *tokens, size_t start) {
   int paren = 0, bracket = 0, brace = 0;
   for (size_t i = start; i < tokens->len; i++) {
@@ -443,6 +465,7 @@ static char *canon_expr_shape_name_text(const Expr *expr) {
 }
 
 static Expr *canon_parse_expr_span(const ZCanonicalTokenVec *tokens, size_t start, size_t end, ZDiag *diag);
+static Expr *canon_parse_rescue_span(const ZCanonicalTokenVec *tokens, size_t start, size_t end, ZDiag *diag);
 
 static int canon_expr_precedence(const ZCanonicalToken *token) {
   if (!token) return 0;
@@ -701,6 +724,11 @@ static Expr *canon_parse_prefix(CanonExprParser *parser) {
     expr->left = canon_parse_expr_prec(parser, 8);
     return expr;
   }
+  if (token && canon_ast_is_text(token, "rescue")) {
+    Expr *expr = canon_parse_rescue_span(parser->tokens, parser->pos, parser->end, parser->diag);
+    parser->pos = parser->end;
+    return expr;
+  }
   if (token && canon_ast_is_text(token, "&")) {
     parser->pos++;
     Expr *expr = canon_ast_new_expr(EXPR_BORROW, token);
@@ -749,8 +777,11 @@ static Expr *canon_parse_prefix(CanonExprParser *parser) {
 
 static Expr *canon_parse_rescue_span(const ZCanonicalTokenVec *tokens, size_t start, size_t end, ZDiag *diag) {
   if (!canon_ast_token_text(tokens, start, end, "rescue")) return NULL;
-  size_t err = canon_ast_find_top_level(tokens, start + 1, end, "err");
-  if (err == CANON_AST_NO_INDEX) return NULL;
+  size_t err = canon_ast_find_rescue_err(tokens, start, end);
+  if (err == CANON_AST_NO_INDEX) {
+    canon_ast_fail(diag, &tokens->items[start], "rescue expression requires an err fallback", "err fallback", "missing err");
+    return canon_ast_new_expr(EXPR_RESCUE, &tokens->items[start]);
+  }
   Expr *expr = canon_ast_new_expr(EXPR_RESCUE, &tokens->items[start]);
   expr->text = z_strdup("err");
   expr->left = canon_parse_expr_span(tokens, start + 1, err, diag);
@@ -785,8 +816,6 @@ static Expr *canon_parse_expr_prec(CanonExprParser *parser, int min_prec) {
 static Expr *canon_parse_expr_span(const ZCanonicalTokenVec *tokens, size_t start, size_t end, ZDiag *diag) {
   while (start < end && tokens->items[start].kind == Z_CANON_TOKEN_NEWLINE) start++;
   while (end > start && tokens->items[end - 1].kind == Z_CANON_TOKEN_NEWLINE) end--;
-  Expr *rescue = start < end ? canon_parse_rescue_span(tokens, start, end, diag) : NULL;
-  if (rescue) return rescue;
   CanonExprParser parser = {.tokens = tokens, .pos = start, .end = end, .diag = diag};
   Expr *expr = canon_parse_expr_prec(&parser, 1);
   if (!canon_ast_has_diag(diag) && parser.pos < end) {

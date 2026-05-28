@@ -843,6 +843,18 @@ static void parses_checks_and_graph_roundtrips_generic_shape_literal(void) {
   expect_program_checks_and_roundtrips(source, "canonical generic shape literal", true);
 }
 
+static void parses_checks_and_graph_roundtrips_rescue_operand(void) {
+  const char *source =
+    "fn maybe_value() -> u8 raises [Missing] {\n"
+    "    raise Missing\n"
+    "}\n"
+    "\n"
+    "fn fallback() -> u8 {\n"
+    "    return 1_u8 + rescue maybe_value() err 2_u8\n"
+    "}\n";
+  expect_program_checks_and_roundtrips(source, "canonical rescue operand", true);
+}
+
 static void rejects_noncanonical_spellings(void) {
   expect_format_rejects_without_diag("fn ok() -> Void {}\n123abc\n", "formatter rejects malformed trailing input without diag");
   expect_rejects("fun main() -> Void {}\n", "fun keyword");
@@ -926,6 +938,7 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    set 1 = value\n}\n", "numeric assignment target");
   expect_rejects("fn bad() -> Void {\n    set items [] = value\n}\n", "spaced assignment index");
   expect_rejects("fn bad() -> Void {\n    set items[] = value\n}\n", "empty assignment index");
+  expect_rejects("fn bad() -> Void {\n    defer { cleanup() }\n}\n", "defer block form");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = check\n}\n", "empty check expression");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = meta\n}\n", "empty meta expression");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = rescue maybe_value()\n}\n", "rescue missing err fallback");
@@ -977,6 +990,7 @@ int main(int argc, char **argv) {
   parses_checks_and_graph_roundtrips_core_program();
   parses_checks_and_graph_roundtrips_library_program();
   parses_checks_and_graph_roundtrips_generic_shape_literal();
+  parses_checks_and_graph_roundtrips_rescue_operand();
   rejects_noncanonical_spellings();
   for (int i = 1; i + 1 < argc; i += 2) parse_file_arg(argv[i], argv[i + 1]);
   printf("canonical text smoke ok\n");

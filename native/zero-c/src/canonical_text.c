@@ -1187,10 +1187,7 @@ static bool canon_parse_statement(CanonParser *parser, size_t depth) {
   }
   if (canon_accept_word(parser, "match")) return canon_finish_statement(parser, node_index, canon_parse_match(parser, depth));
   if (canon_accept_word(parser, "break") || canon_accept_word(parser, "continue")) return canon_finish_statement(parser, node_index, true);
-  if (canon_accept_word(parser, "defer")) {
-    if (canon_is_symbol_text(canon_peek(parser), "{")) return canon_finish_statement(parser, node_index, canon_parse_block(parser, depth));
-    return canon_finish_statement(parser, node_index, canon_parse_expr_line(parser, false));
-  }
+  if (canon_accept_word(parser, "defer")) return canon_finish_statement(parser, node_index, canon_parse_expr_line(parser, false));
   return canon_finish_statement(parser, node_index, canon_parse_assignment_or_expr_line(parser));
 }
 
