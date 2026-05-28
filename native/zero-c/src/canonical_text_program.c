@@ -539,7 +539,7 @@ static bool canon_cast_type_boundary(const ZCanonicalTokenVec *tokens, size_t in
   }
   if (canon_ast_is_text(token, "<")) {
     const ZCanonicalToken *previous = &tokens->items[index - 1];
-    if (previous->kind == Z_CANON_TOKEN_WORD || canon_ast_is_text(previous, ">") || canon_ast_is_text(previous, "]")) return false;
+    if ((previous->kind == Z_CANON_TOKEN_WORD || canon_ast_is_text(previous, ">") || canon_ast_is_text(previous, "]")) && canon_ast_tokens_connected(previous, token)) return false;
   }
   return canon_expr_precedence(token) > 0;
 }

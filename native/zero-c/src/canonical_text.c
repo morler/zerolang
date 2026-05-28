@@ -491,7 +491,7 @@ static size_t canon_cast_type_end(CanonParser *parser, size_t start, size_t end)
       if (canon_expr_binary_symbol(token)) {
         if (canon_is_symbol_text(token, "<")) {
           const ZCanonicalToken *previous = &parser->tokens->items[index - 1];
-          if (previous->kind == Z_CANON_TOKEN_WORD || canon_is_symbol_text(previous, ">") || canon_is_symbol_text(previous, "]")) {
+          if ((previous->kind == Z_CANON_TOKEN_WORD || canon_is_symbol_text(previous, ">") || canon_is_symbol_text(previous, "]")) && canon_tokens_connected(previous, token)) {
             angle++;
             continue;
           }
