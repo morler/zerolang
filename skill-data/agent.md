@@ -5,7 +5,12 @@ description: Graph-first agent workflow for making focused Zero changes with CLI
 
 # Zero Agent Workflow
 
-Use this when editing Zero code, examples, tests, docs, or a package. The graph interface is the primary authoring surface for agents: use ProgramGraph artifacts to inspect, plan, patch, and validate changes. `.0` and `.row` files remain the canonical source text that gets committed. Zero command text is designed to be readable by agents; use JSON when another tool must parse stable fields or when deeper diagnostics are needed.
+Use this when editing Zero code, examples, tests, docs, or a package. The graph interface is the primary authoring surface for agents: use ProgramGraph artifacts to inspect, plan, patch, and validate changes. `.0` and `.row` files remain the canonical source text that gets committed.
+
+Zero offers two structured output formats: `--json` for external tools and CI,
+and `--zdn` (ZDN — Zero Data Notation) for AI agents. ZDN uses Zero's own row
+syntax — every line is a self-contained fact, no brackets to match — making it
+the preferred format when an agent reads the compiler's structured output.
 
 ## Start
 
@@ -52,12 +57,14 @@ zero graph view .zero/agent/work.patched.program-graph
 zero check <file-or-package>
 ```
 
-7. When the compiler reports a diagnostic, explain the code first. If you need stable fields or a repair plan, rerun with JSON:
+7. When the compiler reports a diagnostic, explain the code first. If you need stable fields or a repair plan, rerun with a structured format:
 
 ```sh
 zero explain <diagnostic-code>
-zero check --json <file-or-package>
+zero check --json <file-or-package>      # external tools / CI
+zero check --zdn <file-or-package>       # AI agents
 zero fix --plan --json <file-or-package>
+zero fix --plan --zdn <file-or-package>  # ZDN variant for agents
 ```
 
 8. If behavior changes, add or update a `test` block or conformance fixture.
@@ -71,7 +78,7 @@ zero fix --plan --json <file-or-package>
 - Use `Maybe<T>`, explicit `!` / `![...]`, and `check` instead of hidden failure.
 - Prefer graph inspection and graph patches for agent planning; source edits are the persistence step.
 - Do not invent syntax. Load `language` when unsure.
-- Do not invent CLI fields. If you need fields, run the command with `--json` and read the data.
+- Do not invent CLI fields. If you need fields, run the command with `--zdn` (preferred for agents) or `--json` and read the data.
 
 ## Useful Focused Commands
 
@@ -86,4 +93,4 @@ zero size <input>
 zero doctor
 ```
 
-For CLI behavior, JSON contracts, or editor/tool integrations in the Zero repo, use `--json` and the repository scripts listed by `AGENTS.md` or the project documentation.
+For CLI behavior, JSON contracts, or editor/tool integrations in the Zero repo, use `--json` (external tools) or `--zdn` (agents) and the repository scripts listed by `AGENTS.md` or the project documentation.
