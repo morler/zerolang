@@ -690,6 +690,25 @@ static void parses_use_declarations_and_zero_arg_calls(void) {
   expect_accepts(source, "use declarations and zero-arg calls");
 }
 
+static void imports_public_c_and_use_source_ranges(void) {
+  const char *source =
+    "pub extern c \"conformance/c/simple.h\" as c\n"
+    "use package.module as module\n";
+  ZDiag diag = {0};
+  Program program = {0};
+  expect(z_parse_canonical_text_program_source(source, &program, &diag), diag.message);
+  expect(program.c_imports.len == 1, "expected public C import");
+  expect(strcmp(program.c_imports.items[0].header, "conformance/c/simple.h") == 0, "expected decoded public C header path");
+  expect(strcmp(program.c_imports.items[0].alias, "c") == 0, "expected public C import alias");
+  expect(program.use_imports.len == 1, "expected use import");
+  UseImport *use_import = &program.use_imports.items[0];
+  expect(strcmp(use_import->module, "package.module") == 0, "expected use module");
+  expect(strcmp(use_import->alias, "module") == 0, "expected use alias");
+  expect(use_import->column == 1, "expected use source range to start at declaration");
+  expect(use_import->end_column == 29, "expected use source range to include alias");
+  z_free_program(&program);
+}
+
 static void parses_assignment_statements(void) {
   const char *source =
     "type Point {\n"
@@ -1077,6 +1096,7 @@ int main(int argc, char **argv) {
   parses_control_flow_tests_and_static_forms();
   parses_empty_return_but_not_empty_checks();
   parses_use_declarations_and_zero_arg_calls();
+  imports_public_c_and_use_source_ranges();
   parses_assignment_statements();
   parses_effectful_expression_forms();
   imports_decoded_literals_and_prefix_forms();

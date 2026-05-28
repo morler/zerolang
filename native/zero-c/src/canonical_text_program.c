@@ -1277,8 +1277,7 @@ static void canon_parse_interface_ast(CanonAstParser *parser, Program *program, 
   canon_push_interface_ast(&program->interfaces, item);
 }
 
-static void canon_parse_use_decl_ast(CanonAstParser *parser, Program *program) {
-  const ZCanonicalToken *start = canon_ast_peek(parser);
+static void canon_parse_use_decl_ast(CanonAstParser *parser, Program *program, const ZCanonicalToken *start) {
   size_t module_start = parser->pos;
   while (parser->pos < parser->tokens->len && !canon_ast_is_text(canon_ast_peek(parser), "as") &&
          canon_ast_peek(parser)->kind != Z_CANON_TOKEN_NEWLINE && canon_ast_peek(parser)->kind != Z_CANON_TOKEN_COMMENT &&
@@ -1287,16 +1286,20 @@ static void canon_parse_use_decl_ast(CanonAstParser *parser, Program *program) {
   }
   size_t module_end = parser->pos;
   char *alias = NULL;
+  int end_column = module_end > module_start ? parser->tokens->items[module_end - 1].column + (int)parser->tokens->items[module_end - 1].length : 1;
   if (canon_ast_accept(parser, "as")) {
     const ZCanonicalToken *alias_token = canon_ast_expect_word(parser, "expected import alias");
-    if (alias_token) alias = z_strdup(alias_token->text);
+    if (alias_token) {
+      alias = z_strdup(alias_token->text);
+      end_column = alias_token->column + (int)alias_token->length;
+    }
   }
   canon_push_use_ast(&program->use_imports, (UseImport){
     .module = canon_ast_join_line_tokens(parser->tokens, module_start, module_end),
     .alias = alias,
     .line = start ? start->line : 1,
     .column = start ? start->column : 1,
-    .end_column = module_end > module_start ? parser->tokens->items[module_end - 1].column + (int)parser->tokens->items[module_end - 1].length : 1
+    .end_column = end_column
   });
 }
 
@@ -1362,7 +1365,10 @@ static void canon_parse_decl_after_pub_ast(CanonAstParser *parser, Program *prog
   if (canon_ast_accept(parser, "fn")) canon_push_function_ast(&program->functions, canon_parse_signature_ast(parser, is_public, false, true));
   else if (canon_ast_accept(parser, "type")) canon_parse_type_decl_ast(parser, program, is_public, NULL);
   else if (canon_ast_accept(parser, "packed")) { canon_ast_expect(parser, "type", "expected packed type declaration"); canon_parse_type_decl_ast(parser, program, is_public, "packed"); }
-  else if (canon_ast_accept(parser, "extern")) { canon_ast_expect(parser, "type", "expected extern type declaration"); canon_parse_type_decl_ast(parser, program, is_public, "extern"); }
+  else if (canon_ast_accept(parser, "extern")) {
+    if (canon_ast_accept(parser, "c")) canon_parse_c_import_ast(parser, program);
+    else { canon_ast_expect(parser, "type", "expected extern type declaration"); canon_parse_type_decl_ast(parser, program, is_public, "extern"); }
+  }
   else if (canon_ast_accept(parser, "enum")) canon_parse_enum_decl_ast(parser, program);
   else if (canon_ast_accept(parser, "choice")) canon_parse_choice_decl_ast(parser, program);
   else if (canon_ast_accept(parser, "interface")) canon_parse_interface_ast(parser, program, is_public);
@@ -1374,6 +1380,7 @@ static void canon_parse_decl_after_pub_ast(CanonAstParser *parser, Program *prog
 static void canon_parse_declaration_ast(CanonAstParser *parser, Program *program) {
   canon_ast_skip_newlines(parser);
   if (!canon_ast_peek(parser) || canon_ast_peek(parser)->kind == Z_CANON_TOKEN_EOF) return;
+  const ZCanonicalToken *start = canon_ast_peek(parser);
   if (canon_ast_accept(parser, "pub")) canon_parse_decl_after_pub_ast(parser, program, true);
   else if (canon_ast_accept(parser, "export")) { canon_ast_expect(parser, "c", "expected export c fn"); canon_ast_expect(parser, "fn", "expected export c fn"); canon_push_function_ast(&program->functions, canon_parse_signature_ast(parser, false, true, true)); }
   else if (canon_ast_accept(parser, "fn")) canon_push_function_ast(&program->functions, canon_parse_signature_ast(parser, false, false, true));
@@ -1386,7 +1393,7 @@ static void canon_parse_declaration_ast(CanonAstParser *parser, Program *program
   else if (canon_ast_accept(parser, "choice")) canon_parse_choice_decl_ast(parser, program);
   else if (canon_ast_accept(parser, "interface")) canon_parse_interface_ast(parser, program, false);
   else if (canon_ast_accept(parser, "test")) canon_parse_test_decl_ast(parser, program);
-  else if (canon_ast_accept(parser, "use")) canon_parse_use_decl_ast(parser, program);
+  else if (canon_ast_accept(parser, "use")) canon_parse_use_decl_ast(parser, program, start);
   else if (canon_ast_accept(parser, "alias")) canon_parse_alias_decl_ast(parser, program, false);
   else if (canon_ast_accept(parser, "const")) canon_parse_const_decl_ast(parser, program, false);
   else canon_ast_fail(parser->diag, canon_ast_peek(parser), "expected canonical declaration", "declaration", canon_ast_peek(parser) ? canon_ast_peek(parser)->text : "end of file");
