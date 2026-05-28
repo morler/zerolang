@@ -341,6 +341,33 @@ static void parses_nested_generic_type_commas(void) {
   expect_accepts(source, "nested generic type commas");
 }
 
+static void imports_nested_generic_declaration_field_types(void) {
+  const char *source =
+    "type Pair<T, U> {\n"
+    "    left: T,\n"
+    "    right: U,\n"
+    "}\n"
+    "\n"
+    "type Holder {\n"
+    "    value: Pair<i32, u8>,\n"
+    "}\n"
+    "\n"
+    "choice MaybePair {\n"
+    "    some: Pair<i32, u8>,\n"
+    "    none: Void,\n"
+    "}\n";
+  ZDiag diag = {0};
+  Program program = {0};
+  expect(z_parse_canonical_text_program_source(source, &program, &diag), diag.message);
+  expect(program.shapes.len == 2, "expected pair and holder shapes");
+  expect(program.shapes.items[1].fields.len == 1, "expected holder field");
+  expect(strcmp(program.shapes.items[1].fields.items[0].type, "Pair<i32, u8>") == 0, "expected nested generic shape field type");
+  expect(program.choices.len == 1, "expected maybe pair choice");
+  expect(program.choices.items[0].cases.len == 2, "expected maybe pair cases");
+  expect(strcmp(program.choices.items[0].cases.items[0].type, "Pair<i32, u8>") == 0, "expected nested generic choice payload type");
+  z_free_program(&program);
+}
+
 static void parses_separate_boolean_comparisons(void) {
   const char *source =
     "fn compare(a: i32, b: i32, c: i32, d: i32) -> Void {\n"
@@ -771,6 +798,10 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("pub fn main(world: World) -> Void raises {\n    let ok: Bool = a == b == c\n}\n", "chained equality comparison");
   expect_rejects("fn bad(a: i32, b: i32, c: i32) -> Void {\n    let ok: Bool = a < b > (c)\n}\n", "generic-looking chained comparison");
   expect_rejects("fn bad(items: Items) -> Void {\n    for item in items all {\n        return\n    }\n}\n", "space call in for range");
+  expect_rejects("fn bad(items: Items) -> Void {\n    for item in items {\n        return\n    }\n}\n", "non-range for loop");
+  expect_rejects("fn bad() -> Void {\n    for item in ..4 {\n        return\n    }\n}\n", "missing for range start");
+  expect_rejects("fn bad() -> Void {\n    for item in 0.. {\n        return\n    }\n}\n", "missing for range end");
+  expect_rejects("fn bad() -> Void {\n    for item in 0..4..8 {\n        return\n    }\n}\n", "extra for range separator");
   expect_rejects("fn bad(items: Items) -> Void {\n    for item in 1 < 2 < 3 {\n        return\n    }\n}\n", "chained comparison in for range");
   expect_rejects("type Pair<T U> {\n    left: T,\n    right: U,\n}\n", "missing type parameter comma");
   expect_rejects("fn id<T U>(value: T) -> T {\n    return value\n}\n", "missing function type parameter comma");
@@ -840,8 +871,11 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    let value: i32 = rescue maybe_value()\n}\n", "rescue missing err fallback");
   expect_rejects("fn bad() -> Void {\n    let value: i32 = maybe_value() err 1\n}\n", "err without rescue");
   expect_rejects("enum Bad u8 {\n    one,\n}\n", "enum storage type without colon");
+  expect_rejects("enum Bad<T> {\n    one,\n}\n", "generic enum declaration");
+  expect_rejects("choice Bad<T> {\n    ok: i32,\n}\n", "generic choice declaration");
   expect_rejects("choice Bad {\n    ok,\n}\n", "choice variant without explicit type");
   expect_rejects("choice Result {\n    ok: i32,\n}\n\nfn bad(result: Result) -> Void {\n    match result {\n        ok value {\n            return\n        }\n    }\n}\n", "choice match pattern without dot payload syntax");
+  expect_rejects("choice Result {\n    ok: i32,\n}\n\nfn bad(result: Result) -> Void {\n    match result {\n        .ok(left, right) {\n            return\n        }\n    }\n}\n", "multiple choice match payload bindings");
 }
 
 static void parse_file_arg(const char *mode, const char *path) {
@@ -861,6 +895,7 @@ int main(int argc, char **argv) {
   formats_else_and_line_start_prefix_forms();
   parses_fallibility_choices_and_interfaces();
   parses_nested_generic_type_commas();
+  imports_nested_generic_declaration_field_types();
   parses_separate_boolean_comparisons();
   parses_parenthesized_comparisons();
   parses_else_if_chains();

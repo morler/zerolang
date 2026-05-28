@@ -950,14 +950,9 @@ static bool canon_validate_match_pattern(CanonParser *parser, size_t start, size
     if (!canon_is_symbol_text(&parser->tokens->items[start + 2], "(")) return canon_fail(parser->diag, &parser->tokens->items[start + 2], "unexpected match case pattern", "payload pattern", parser->tokens->items[start + 2].text);
     if (!canon_is_symbol_text(&parser->tokens->items[end - 1], ")")) return canon_fail(parser->diag, &parser->tokens->items[end - 1], "expected closing match payload pattern", ")", parser->tokens->items[end - 1].text);
     if (start + 3 == end - 1) return canon_fail(parser->diag, &parser->tokens->items[start + 2], "expected match payload binding", "payload name", ")");
-    for (size_t i = start + 3; i < end - 1; i++) {
-      const ZCanonicalToken *token = &parser->tokens->items[i];
-      bool expect_name = ((i - (start + 3)) % 2) == 0;
-      if (expect_name) {
-        if (token->kind != Z_CANON_TOKEN_WORD || canon_is_reserved_word(token->text)) return canon_fail(parser->diag, token, "expected match payload binding", "payload name", token->text);
-      } else if (!canon_is_symbol_text(token, ",")) return canon_fail(parser->diag, token, "expected comma between match payload bindings", ",", token->text);
-    }
-    if (((end - 1) - (start + 3)) % 2 == 0) return canon_fail(parser->diag, &parser->tokens->items[end - 1], "expected match payload binding after comma", "payload name", ")");
+    if (start + 5 != end) return canon_fail(parser->diag, &parser->tokens->items[start + 2], "match payload pattern supports one binding", "one payload binding", "multiple payload bindings");
+    const ZCanonicalToken *payload = &parser->tokens->items[start + 3];
+    if (payload->kind != Z_CANON_TOKEN_WORD || canon_is_reserved_word(payload->text)) return canon_fail(parser->diag, payload, "expected match payload binding", "payload name", payload->text);
     return true;
   }
   return canon_validate_expr(parser, start, end);
@@ -1004,9 +999,9 @@ static bool canon_parse_let_or_var(CanonParser *parser) {
   return canon_parse_expr_line(parser, false);
 }
 
-static bool canon_find_top_level_symbol(CanonParser *parser, size_t start, const char *symbol, size_t *index) {
+static bool canon_find_top_level_symbol_in_range(CanonParser *parser, size_t start, size_t end, const char *symbol, size_t *index) {
   int paren = 0, bracket = 0, brace = 0;
-  for (size_t i = start; i < parser->tokens->len; i++) {
+  for (size_t i = start; i < parser->tokens->len && i < end; i++) {
     const ZCanonicalToken *token = &parser->tokens->items[i];
     if (token->kind == Z_CANON_TOKEN_EOF || token->kind == Z_CANON_TOKEN_NEWLINE || token->kind == Z_CANON_TOKEN_COMMENT) return false;
     if (paren == 0 && bracket == 0 && brace == 0 && canon_is_symbol_text(token, symbol)) {
@@ -1028,6 +1023,10 @@ static bool canon_find_top_level_symbol(CanonParser *parser, size_t start, const
     }
   }
   return false;
+}
+
+static bool canon_find_top_level_symbol(CanonParser *parser, size_t start, const char *symbol, size_t *index) {
+  return canon_find_top_level_symbol_in_range(parser, start, parser->tokens->len, symbol, index);
 }
 
 static bool canon_find_matching_delimiter(CanonParser *parser, size_t open_index, size_t end, size_t *close_index) {
@@ -1173,7 +1172,17 @@ static bool canon_parse_statement(CanonParser *parser, size_t depth) {
     if (!canon_accept_word(parser, "in")) return canon_fail(parser->diag, canon_peek(parser), "expected for range", "in", canon_peek(parser)->text);
     size_t expr_start = parser->pos;
     if (!canon_parse_until(parser, "{", NULL, false, false)) return false;
-    if (!canon_validate_expr(parser, expr_start, parser->pos)) return false;
+    size_t expr_end = parser->pos;
+    size_t range = 0;
+    if (!canon_find_top_level_symbol_in_range(parser, expr_start, expr_end, "..", &range)) {
+      return canon_fail(parser->diag, expr_start < expr_end ? &parser->tokens->items[expr_start] : canon_peek(parser), "expected '..' in range loop", "range expression", "missing '..'");
+    }
+    if (range == expr_start) return canon_fail(parser->diag, &parser->tokens->items[range], "expected range start expression", "range start", "..");
+    if (range + 1 >= expr_end) return canon_fail(parser->diag, &parser->tokens->items[range], "expected range end expression", "range end", "..");
+    size_t extra_range = 0;
+    if (canon_find_top_level_symbol_in_range(parser, range + 1, expr_end, "..", &extra_range)) return canon_fail(parser->diag, &parser->tokens->items[extra_range], "range loop uses one '..'", "single range separator", "..");
+    if (!canon_validate_expr(parser, expr_start, range)) return false;
+    if (!canon_validate_expr(parser, range + 1, expr_end)) return false;
     return canon_finish_statement(parser, node_index, canon_parse_block(parser, depth));
   }
   if (canon_accept_word(parser, "match")) return canon_finish_statement(parser, node_index, canon_parse_match(parser, depth));
@@ -1244,7 +1253,7 @@ static bool canon_parse_extern_declaration(CanonParser *parser, const ZCanonical
 
 static bool canon_parse_enum_declaration(CanonParser *parser) {
   if (!canon_expect_word_token(parser, "expected enum name")) return false;
-  if (!canon_parse_type_params(parser)) return false;
+  if (canon_is_symbol_text(canon_peek(parser), "<")) return canon_fail(parser->diag, canon_peek(parser), "enum declarations do not support generic parameters", "enum name or storage type", "<");
   if (!canon_is_symbol_text(canon_peek(parser), "{")) {
     if (!canon_expect_symbol(parser, ":", "expected ':' before enum storage type")) return false;
     if (!canon_parse_type_until(parser, "{", NULL)) return false;
@@ -1255,7 +1264,7 @@ static bool canon_parse_enum_declaration(CanonParser *parser) {
 
 static bool canon_parse_choice_declaration(CanonParser *parser) {
   if (!canon_expect_word_token(parser, "expected choice name")) return false;
-  if (!canon_parse_type_params(parser)) return false;
+  if (canon_is_symbol_text(canon_peek(parser), "<")) return canon_fail(parser->diag, canon_peek(parser), "choice declarations do not support generic parameters", "choice name or body", "<");
   if (parser->facts) parser->facts->choice_count++;
   return canon_parse_field_list(parser, true);
 }

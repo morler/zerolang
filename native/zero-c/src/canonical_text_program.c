@@ -105,16 +105,6 @@ static void canon_push_param_ast(ParamVec *vec, Param item) {
   vec->items[vec->len++] = item;
 }
 
-static void canon_free_param_vec_ast(ParamVec *vec) {
-  if (!vec) return;
-  for (size_t i = 0; i < vec->len; i++) {
-    free(vec->items[i].name);
-    free(vec->items[i].type);
-  }
-  free(vec->items);
-  *vec = (ParamVec){0};
-}
-
 static void canon_push_function_ast(FunctionVec *vec, Function item) {
   if (vec->len == vec->cap) {
     vec->cap = z_grow_capacity(vec->cap, vec->len + 1, 4);
@@ -985,9 +975,7 @@ static void canon_parse_field_list_ast(CanonAstParser *parser, ParamVec *out, bo
     char *type = NULL;
     if (typed_fields) {
       canon_ast_expect(parser, ":", "expected ':' after field name");
-      size_t type_start = parser->pos;
-      while (parser->pos < parser->tokens->len && !canon_ast_is_text(canon_ast_peek(parser), ",") && !canon_ast_is_text(canon_ast_peek(parser), "}")) parser->pos++;
-      type = canon_parse_type_between(parser, type_start, parser->pos);
+      type = canon_parse_type_until_ast(parser, ",", "}");
     }
     if (name) canon_push_param_ast(out, (Param){.name = z_strdup(name->text), .type = type, .line = name->line, .column = name->column});
     canon_ast_expect(parser, ",", "expected trailing comma in declaration list");
@@ -1008,9 +996,11 @@ static void canon_parse_enum_decl_ast(CanonAstParser *parser, Program *program) 
   const ZCanonicalToken *name = canon_ast_expect_word(parser, "expected enum name");
   EnumDecl item = {.line = name ? name->line : 1, .column = name ? name->column : 1};
   if (name) item.name = z_strdup(name->text);
-  ParamVec discarded_type_params = {0};
-  canon_parse_type_params_ast(parser, &discarded_type_params);
-  canon_free_param_vec_ast(&discarded_type_params);
+  if (canon_ast_is_text(canon_ast_peek(parser), "<")) {
+    canon_ast_fail(parser->diag, canon_ast_peek(parser), "enum declarations do not support generic parameters", "enum name or storage type", "<");
+    free(item.name);
+    return;
+  }
   if (canon_ast_accept(parser, ":")) item.type = canon_parse_type_until_ast(parser, "{", NULL);
   canon_parse_field_list_ast(parser, &item.cases, false);
   canon_push_enum_ast(&program->enums, item);
@@ -1020,9 +1010,11 @@ static void canon_parse_choice_decl_ast(CanonAstParser *parser, Program *program
   const ZCanonicalToken *name = canon_ast_expect_word(parser, "expected choice name");
   Choice item = {.line = name ? name->line : 1, .column = name ? name->column : 1};
   if (name) item.name = z_strdup(name->text);
-  ParamVec discarded_type_params = {0};
-  canon_parse_type_params_ast(parser, &discarded_type_params);
-  canon_free_param_vec_ast(&discarded_type_params);
+  if (canon_ast_is_text(canon_ast_peek(parser), "<")) {
+    canon_ast_fail(parser->diag, canon_ast_peek(parser), "choice declarations do not support generic parameters", "choice name or body", "<");
+    free(item.name);
+    return;
+  }
   canon_parse_field_list_ast(parser, &item.cases, true);
   canon_push_choice_ast(&program->choices, item);
 }
