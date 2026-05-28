@@ -2660,7 +2660,7 @@ const programGraphViewCoverage = [
   ["constructors-defaults", "conformance/native/pass/constructors-defaults.0", [/FixedVec\.init<u8, 4>/]],
   ["direct-call-add", "examples/direct-call-add.0", [/export c fn main\(a: i32, b: i32\) -> i32/]],
   ["generic-static-explicit-shadowing", "conformance/check/pass/generic-static-explicit-shadowing.0", [/Helper\.needsSame<N>\(left, right\)/]],
-  ["systems-package", "examples/systems-package", [/use helpers/, /use types/, /pub fn main\(world: World\) -> Void raises/]],
+  ["systems-package", "examples/systems-package", [/use std\.codec/, /pub fn main\(world: World\) -> Void raises/]],
   ["std-math", "examples/std-math.0", [/pub fn main\(world: World\) -> Void raises/, /std\.math\.minU32\(8, 3\)/]],
 ];
 for (const [name, fixture, patterns] of programGraphViewCoverage) {
@@ -2673,6 +2673,10 @@ for (const [name, fixture, patterns] of programGraphViewCoverage) {
   const view = await readFile(viewPath, "utf8");
   for (const pattern of patterns) assert.match(view, pattern);
   assert.doesNotMatch(view, /fn __zero_test_/);
+  if (name === "systems-package") {
+    assert.doesNotMatch(view, /^use (helpers|types)$/m);
+    assert.equal((await execFileAsync(zero, ["graph", "check", viewPath])).stdout, "program graph check ok\n");
+  }
   if (name === "std-math") assert.doesNotMatch(view, /fn __zero_std_/);
 }
 for (const fixture of [
