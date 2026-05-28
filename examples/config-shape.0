@@ -1,4 +1,4 @@
-extern c "stdint.h" as cstdint
+extern c "examples/vendor/include/config.h" as cconfig
 
 extern type CConfig
   port i32
