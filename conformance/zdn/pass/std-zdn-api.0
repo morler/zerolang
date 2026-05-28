@@ -21,17 +21,13 @@ pub fn main Bool
     ret false
 
   # Test: parse on valid ZDN (String input)
-  mut arena_buf [16]u8 [0_u8; 16]
-  mut arena FixedBufAlloc std.mem.fixedBufAlloc arena_buf
-  let parsed Bool std.zdn.parse arena "CheckResult\n  ok true\n"
+  let parsed Bool std.zdn.parse "CheckResult\n  ok true\n"
   if != parsed true
     ret false
 
   # Test: parseBytes on valid ZDN (Span<u8> input)
-  mut arena_buf2 [16]u8 [0_u8; 16]
-  mut arena2 FixedBufAlloc std.mem.fixedBufAlloc arena_buf2
   let bytes Span<u8> "BuildResult\n  ok true\n"
-  let parsed2 Bool std.zdn.parseBytes arena2 bytes
+  let parsed2 Bool std.zdn.parseBytes bytes
   if != parsed2 true
     ret false
 
