@@ -2956,6 +2956,20 @@ static bool ir_lower_expr_for_type(const Program *program, IrProgram *ir, const 
     *out = ir_new_maybe_byte_view_literal(ir, true, view, line, column);
     return true;
   }
+  if (target_type == IR_TYPE_MAYBE_SCALAR && expr && expr->resolved_type) {
+    IrTypeKind resolved_kind = ir_type_kind(expr->resolved_type);
+    if (resolved_kind != IR_TYPE_MAYBE_SCALAR && resolved_kind != IR_TYPE_MAYBE_BYTE_VIEW &&
+        (ir_type_is_value(resolved_kind) || resolved_kind == IR_TYPE_BOOL)) {
+      IrValue *inner = NULL;
+      if (!ir_lower_expr(program, ir, fun, expr, &inner)) return false;
+      if (inner->kind == IR_VALUE_INT || inner->kind == IR_VALUE_BOOL) {
+        *out = ir_new_maybe_scalar_literal(ir, true, resolved_kind, inner->int_value, line, column);
+        ir_free_value(inner);
+        return true;
+      }
+      ir_free_value(inner);
+    }
+  }
   return ir_lower_expr(program, ir, fun, expr, out);
 }
 
