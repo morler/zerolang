@@ -498,7 +498,7 @@ static void cw_append_shape(CanonWriter *writer, const Shape *shape) {
   else zbuf_append(writer->buf, "type ");
   cw_append_name(writer, shape->name);
   cw_append_type_param_list(writer, &shape->type_params);
-  if (cw_text_eq(shape->layout, "extern")) {
+  if (cw_text_eq(shape->layout, "extern") && shape->fields.len == 0 && shape->methods.len == 0) {
     zbuf_append_char(writer->buf, '\n');
     return;
   }

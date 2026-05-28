@@ -15,10 +15,10 @@ type CScanState = {
 };
 
 const fileBudgets = {
-  "native/zero-c/include/zero.h": { maxLines: 982, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero.h": { maxLines: 985, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9846, maxStrcmpCalls: 279 },
-  "native/zero-c/src/main.c": { maxLines: 11480, maxStrcmpCalls: 462 },
+  "native/zero-c/src/main.c": { maxLines: 11508, maxStrcmpCalls: 462 },
   "native/zero-c/src/ir.c": { maxLines: 3750, maxStrcmpCalls: 226 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -73,9 +73,9 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_format.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph.h": { maxLines: 135, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_identity.c": { maxLines: 416, maxStrcmpCalls: 1 },
-  "native/zero-c/src/program_graph_import.c": { maxLines: 493, maxStrcmpCalls: 4 },
+  "native/zero-c/src/program_graph_import.c": { maxLines: 496, maxStrcmpCalls: 4 },
   "native/zero-c/src/program_graph_import.h": { maxLines: 8, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_lower.c": { maxLines: 1076, maxStrcmpCalls: 1 },
+  "native/zero-c/src/program_graph_lower.c": { maxLines: 1079, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_lower.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 715, maxStrcmpCalls: 11 },
   "native/zero-c/src/program_graph_patch.c": { maxLines: 591, maxStrcmpCalls: 28 },

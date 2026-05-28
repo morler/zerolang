@@ -1223,6 +1223,7 @@ const graphUserDerefSourcePath = join(outDir, "deref-member.0");
 const graphUserDerefViewPath = join(outDir, "deref-member.view.0");
 const graphPrefixDerefSourcePath = join(outDir, "prefix-deref-member.0");
 const graphPublicSumsSourcePath = join(outDir, "public-sums.0");
+const graphExternFieldsSourcePath = join(outDir, "extern-fields.0");
 const graphCommentsSourcePath = join(outDir, "comments.0");
 const graphDerefMemberSource = [
   "type Point {",
@@ -1295,6 +1296,39 @@ assert.match(graphPublicSumsText, /^pub enum Mode/m);
 assert.match(graphPublicSumsText, /^pub choice Result/m);
 assert.match(graphPublicSumsText, /return 2/);
 assert.equal(zero(["check", graphPublicSumsSourcePath]).stdout, "ok\n");
+writeFileSync(graphExternFieldsSourcePath, [
+  "extern type CPoint {",
+  "    x: i32,",
+  "    y: i32,",
+  "}",
+  "",
+  "pub fn main() -> i32 {",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+const graphExternFieldsDumpJson = json(["graph", "dump", "--json", graphExternFieldsSourcePath]).body;
+const graphExternFieldsLiteralNode = graphExternFieldsDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "i32" && node.value === "1");
+assert(graphExternFieldsLiteralNode);
+const graphExternFieldsPatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphExternFieldsSourcePath,
+  "--expect-graph-hash",
+  graphExternFieldsDumpJson.graphHash,
+  "--op",
+  `set node="${graphExternFieldsLiteralNode.id}" field="value" expect="1" value="2"`,
+]).body;
+assert.equal(graphExternFieldsPatchJson.ok, true);
+assert.equal(graphExternFieldsPatchJson.canonicalSource, true);
+assert.equal(graphExternFieldsPatchJson.saved.path, graphExternFieldsSourcePath);
+const graphExternFieldsText = readFileSync(graphExternFieldsSourcePath, "utf8");
+assert.match(graphExternFieldsText, /^extern type CPoint \{/m);
+assert.match(graphExternFieldsText, /^\s+x: i32,/m);
+assert.match(graphExternFieldsText, /^\s+y: i32,/m);
+assert.match(graphExternFieldsText, /return 2/);
+assert.equal(zero(["check", graphExternFieldsSourcePath]).stdout, "ok\n");
 writeFileSync(graphCommentsSourcePath, [
   "// module comment",
   "",
