@@ -794,6 +794,20 @@ static bool scope_has_moved_place(Scope *scope, const char *root, const char *pa
   return false;
 }
 
+static bool scope_has_moved_place_covering(Scope *scope, const char *root, const char *path) {
+  if (!scope || !root || !root[0]) return false;
+  Scope *root_scope = scope_binding_scope(scope, root);
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    for (size_t i = 0; i < cursor->moved_places.len; i++) {
+      Place *place = &cursor->moved_places.items[i];
+      if (strcmp(place->root, root) != 0) continue;
+      if (root_scope && place->root_scope && place->root_scope != root_scope) continue;
+      if (origin_path_is_within(path, place->path)) return true;
+    }
+  }
+  return false;
+}
+
 static void scope_clear_moved_place(Scope *scope, const char *root, const char *path) {
   if (!scope || !root || !root[0]) return;
   Scope *root_scope = scope_binding_scope(scope, root);
@@ -1593,6 +1607,24 @@ static bool check_place_available(const Expr *expr, Scope *scope, const char *ro
     return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
   }
   if (scope_has_moved_place(scope, root, path)) {
+    char place[200];
+    format_origin_place(place, sizeof(place), root, path);
+    char actual_detail[240];
+    snprintf(actual_detail, sizeof(actual_detail), "%.200s was moved", place);
+    return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
+  }
+  return true;
+}
+
+static bool check_lvalue_base_available(const Expr *expr, Scope *scope, const char *root, const char *path, ZDiag *diag) {
+  if (!expr || !scope || !root || !root[0]) return true;
+  const char *actual = scope_type(scope, root);
+  if (actual && strcmp(actual, "Type") == 0) {
+    char message[256];
+    snprintf(message, sizeof(message), "type name '%s' cannot be used as a runtime value", root);
+    return set_diag_detail(diag, 3005, message, expr->line, expr->column, "runtime value", "type name", "use the type name in an annotation or constructor context");
+  }
+  if (scope_has_moved_place_covering(scope, root, path)) {
     char place[200];
     format_origin_place(place, sizeof(place), root, path);
     char actual_detail[240];
@@ -7338,7 +7370,7 @@ static bool check_lvalue_target(CheckContext *ctx, const Program *program, const
       char path[256];
       bool local_place = expr_binding_path(target->left, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root);
       if (local_place) {
-        if (!check_place_available(target->left, scope, root, path, diag)) return false;
+        if (!check_lvalue_base_available(target->left, scope, root, path, diag)) return false;
         if (!check_place_index_exprs(ctx, program, target->left, scope, diag)) return false;
         if (!check_maybe_value_accesses_in_place(ctx, program, target, scope, diag)) return false;
       } else if (!check_expr(ctx, program, target->left, scope, diag)) return false;
@@ -7379,7 +7411,7 @@ static bool check_lvalue_target(CheckContext *ctx, const Program *program, const
       char path[256];
       bool local_place = expr_binding_path(target->left, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root);
       if (local_place) {
-        if (!check_place_available(target->left, scope, root, path, diag)) return false;
+        if (!check_lvalue_base_available(target->left, scope, root, path, diag)) return false;
         if (!check_place_index_exprs(ctx, program, target->left, scope, diag)) return false;
         if (!check_maybe_value_accesses_in_place(ctx, program, target, scope, diag)) return false;
       } else if (!check_expr(ctx, program, target->left, scope, diag)) return false;
