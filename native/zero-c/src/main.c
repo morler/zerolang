@@ -144,6 +144,7 @@ static const char *diag_code(int code) {
     case 3035: return "MET001";
     case 3036: return "TYP026";
     case 3050: return "TYP027";
+    case 3051: return "MEM002";
     case 3037: return "PUB001";
     case 3038: return "IFC001";
     case 3039: return "IFC002";
@@ -2580,6 +2581,7 @@ static const char *diag_repair_id(int code) {
     case 3035: return "remove-unsupported-meta-expression";
     case 3036: return "fix-type-alias-declaration";
     case 3050: return "keep-recursive-generic-arguments-stable";
+    case 3051: return "guard-maybe-payload";
     case 3037: return "add-public-api-type";
     case 3038: return "declare-or-use-static-interface";
     case 3039: return "add-required-interface-method";
@@ -2632,6 +2634,7 @@ static const char *diag_repair_summary(int code) {
     case 3035: return "Use deterministic meta expressions within the bounded evaluator: literal arithmetic, Bool logic, target facts, or typed reflection facts.";
     case 3036: return "Make the alias name unique and point it at a non-cyclic concrete type.";
     case 3050: return "Call recursively with the same generic type parameters or use a concrete helper.";
+    case 3051: return "Prove the Maybe is present with `.has`, or use `check`/`rescue` so absence is handled explicitly.";
     case 3037: return "Add an explicit public type annotation so graph and docs metadata stay stable.";
     case 3038: return "Declare the referenced interface or pass a concrete shape that satisfies the constraint.";
     case 3039: return "Add the required static method to the concrete shape.";
@@ -2926,6 +2929,16 @@ static const ExplainInfo explain_infos[] = {
     "first<u8, 4>(&vec4)",
   },
   {
+    "MEM002",
+    "memory",
+    "Maybe payload read without presence proof",
+    "A `Maybe<T>.value` payload read was reached without proving that the value is present.",
+    "Maybe payload storage is only initialized when `.has` is true, so source must make the presence proof visible before reading `.value`.",
+    "Guard the read with `.has`, or use `check`/`rescue` to handle absence explicitly.",
+    "let item: Maybe<u8> = null\nlet byte: u8 = item.value",
+    "if item.has {\n    let byte: u8 = item.value\n}",
+  },
+  {
     "BOR001",
     "borrow",
     "Active lexical borrow conflict",
@@ -3013,6 +3026,7 @@ static void print_explain_json(const ExplainInfo *info) {
                                          strcmp(info->code, "MET001") == 0 ? 3035 :
                                          strcmp(info->code, "TYP026") == 0 ? 3036 :
                                          strcmp(info->code, "TYP027") == 0 ? 3050 :
+                                         strcmp(info->code, "MEM002") == 0 ? 3051 :
                                          strcmp(info->code, "PUB001") == 0 ? 3037 :
                                          strcmp(info->code, "IFC001") == 0 ? 3038 :
                                          strcmp(info->code, "IFC002") == 0 ? 3039 :

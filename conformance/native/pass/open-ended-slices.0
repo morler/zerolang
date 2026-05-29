@@ -1,4 +1,4 @@
-fn bytesTail(bytes: [5]u8) -> Span<u8> {
+fn bytesTail(bytes: Span<u8>) -> Span<u8> {
     return bytes[2..]
 }
 
@@ -6,7 +6,7 @@ fn bytesPrefix(bytes: Span<u8>) -> Span<u8> {
     return bytes[..3]
 }
 
-fn intWhole(values: [5]i32) -> Span<i32> {
+fn intWhole(values: Span<i32>) -> Span<i32> {
     return values[..]
 }
 
@@ -25,7 +25,7 @@ pub fn main(world: World) -> Void raises {
     let intPrefix: Span<i32> = values[..3]
     let intTailView: Span<i32> = numbers[2..]
     let intWholeView: Span<i32> = numbers[..]
-    if std.mem.len(tail) == 3 && tail[0] == 67 && tail[2] == 69 && std.mem.len(prefix) == 3 && prefix[2] == 67 && std.mem.len(whole) == 5 && whole[4] == 69 && bytesTail(bytes)[1] == 68 && bytesPrefix(bytesSpan)[0] == 65 && intPrefix[2] == 30 && intTailView[0] == 30 && intTailView[2] == 50 && intWholeView[4] == 50 && intWhole(values)[3] == 40 && intTail(numbers)[1] == 40 {
+    if std.mem.len(tail) == 3 && tail[0] == 67 && tail[2] == 69 && std.mem.len(prefix) == 3 && prefix[2] == 67 && std.mem.len(whole) == 5 && whole[4] == 69 && bytesTail(bytesSpan)[1] == 68 && bytesPrefix(bytesSpan)[0] == 65 && intPrefix[2] == 30 && intTailView[0] == 30 && intTailView[2] == 50 && intWholeView[4] == 50 && intWhole(numbers)[3] == 40 && intTail(numbers)[1] == 40 {
         check world.out.write("open ended slices ok\n")
     }
 }

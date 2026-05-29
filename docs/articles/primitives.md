@@ -30,7 +30,7 @@ let marker: u8 = 'A' as u8
 
 ## Absence And Fallibility
 
-`Maybe<T>` represents an optional value. `null` is accepted only when the expected type is known to be `Maybe<T>`.
+`Maybe<T>` represents an optional value. `null` is accepted only when the expected type is known to be `Maybe<T>`, and `.value` reads require a visible `.has` guard or explicit `check` / `rescue` handling.
 
 ```zero
 let name: Maybe<String> = null
@@ -76,6 +76,10 @@ Zero makes memory layout visible in types. These forms are primitive type constr
 | `mutref<T>` | Non-owning mutable reference. |
 | `owned<T>` | Move-only value that owns cleanup responsibility. |
 | `const T` | Read-only view of `T`. |
+
+`Span<T>` and `MutSpan<T>` do not own their backing storage. Returning a span
+derived from local fixed-array storage is rejected; return an owned value or keep
+the view inside the current function.
 
 ```zero
 type BufferView {

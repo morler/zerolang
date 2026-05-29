@@ -10,7 +10,7 @@ fn middle(values: Span<i32>) -> Span<i32> {
     return values[1..4]
 }
 
-fn arrayTail(values: [5]i32) -> Span<i32> {
+fn spanTail(values: Span<i32>) -> Span<i32> {
     return values[2..5]
 }
 
@@ -22,7 +22,7 @@ pub fn main(world: World) -> Void raises {
     let fromArray: Span<i32> = values[start..end]
     let fromSpan: Span<i32> = span[start..end]
     let window: IntWindow = IntWindow { values: middle(span) }
-    if values[2] == 30 && second(span) == 20 && fromArray[0] == 20 && fromArray[2] == 40 && fromSpan[1] == 30 && window.values[2] == 40 && arrayTail(values)[0] == 30 {
+    if values[2] == 30 && second(span) == 20 && fromArray[0] == 20 && fromArray[2] == 40 && fromSpan[1] == 30 && window.values[2] == 40 && spanTail(span)[0] == 30 {
         check world.out.write("generic spans ok\n")
     }
 }

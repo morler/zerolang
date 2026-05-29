@@ -339,7 +339,8 @@ or from `u8`, and it is not accepted in integer arithmetic.
 public surface. `Void` is used when a function returns no useful value.
 
 Optional values use `Maybe<T>`. Use `null` only where the expected type is a
-`Maybe<T>`; untyped `null` is rejected.
+`Maybe<T>`; untyped `null` is rejected. Read `.value` only inside a visible
+`.has` guard, or use `check` / `rescue` so absence is handled explicitly.
 
 Memory-oriented APIs use types such as `Span<T>`, `MutSpan<T>`, `ref<T>`,
 `mutref<T>`, and `Alloc`. The hosted file slice also exposes `Fs`, `File`, and
@@ -391,6 +392,10 @@ Slice forms are `start..end`, `start..`, `..end`, and `..`. They return
 `Span<T>` views for arrays/spans and `Span<u8>` views for strings. Slices are
 half-open: the start is included, the end is excluded. Omitted starts default to
 `0`; omitted ends default to the base length.
+
+`Span<T>` and `MutSpan<T>` are non-owning views. A function may return a view
+derived from a view parameter or longer-lived value, but returning a view backed
+by local fixed-array storage is rejected with `BOR002`.
 
 Assignments may target:
 

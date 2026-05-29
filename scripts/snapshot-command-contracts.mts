@@ -451,6 +451,7 @@ function assertShipReport(report, outPath) {
   assert.equal(report.safetyFacts.profileKey, "small");
   assert.equal(report.safetyFacts.bounds.policy, "checked");
   assert.equal(report.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
+  assert.equal(report.safetyFacts.initialization.maybePayloadReads, "guard-checked");
   assert.equal(report.releasePreview.deterministic, true);
   assertReleaseTargetContract(report, {
     target: "linux-musl-x64",
@@ -952,6 +953,7 @@ assert.equal(graphCheckJson.safetyFacts.bounds.runtimeTraps, true);
 assert.equal(graphCheckJson.safetyFacts.bounds.optimizerElision, false);
 assert.equal(graphCheckJson.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
 assert.equal(graphCheckJson.safetyFacts.overflow.unchecked, true);
+assert.equal(graphCheckJson.safetyFacts.initialization.maybePayloadReads, "guard-checked");
 assert.equal(graphCheckJson.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 assert.deepEqual(graphCheckJson.diagnostics, []);
 assert.equal(graphCheckJson.saved, null);
@@ -2371,6 +2373,7 @@ assert.equal(buildReport.safetyFacts.bounds.policy, "checked");
 assert.equal(buildReport.safetyFacts.bounds.optimizerElision, false);
 assert.equal(buildReport.safetyFacts.overflow.policy, "literal-range-checked-runtime-unchecked");
 assert.equal(buildReport.safetyFacts.initialization.locals, "initializer-required");
+assert.equal(buildReport.safetyFacts.initialization.maybePayloadReads, "guard-checked");
 assert.equal(buildReport.safetyFacts.aliasing.mutableAliases, "diagnostic");
 assert.equal(buildReport.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 assert.equal(buildReport.profileBudget.cBridgeFallback, false);
@@ -2986,11 +2989,13 @@ writeFileSync(directStdPathSource, `export c fn main() -> u8 {
             ok = false
         }
     }
-    if !std.mem.eql(std.path.basename(normalized.value), "main.0") {
-        ok = false
-    }
-    if !std.mem.eql(std.path.dirname(normalized.value), "src") {
-        ok = false
+    if normalized.has {
+        if !std.mem.eql(std.path.basename(normalized.value), "main.0") {
+            ok = false
+        }
+        if !std.mem.eql(std.path.dirname(normalized.value), "src") {
+            ok = false
+        }
     }
     if !std.mem.eql(std.path.dirname("/main.0"), root_expected) {
         ok = false
@@ -2998,8 +3003,10 @@ writeFileSync(directStdPathSource, `export c fn main() -> u8 {
     if !std.mem.eql(std.path.dirname(root_expected), root_expected) {
         ok = false
     }
-    if !std.mem.eql(std.path.extension(normalized.value), "0") {
-        ok = false
+    if normalized.has {
+        if !std.mem.eql(std.path.extension(normalized.value), "0") {
+            ok = false
+        }
     }
     if ok {
         return 1_u8

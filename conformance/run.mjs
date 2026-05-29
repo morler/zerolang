@@ -1334,6 +1334,7 @@ assert.equal(compileTimeBody.safetyFacts.bounds.optimizerElision, false);
 assert.equal(compileTimeBody.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
 assert.equal(compileTimeBody.safetyFacts.overflow.unchecked, true);
 assert.equal(compileTimeBody.safetyFacts.initialization.locals, "initializer-required");
+assert.equal(compileTimeBody.safetyFacts.initialization.maybePayloadReads, "guard-checked");
 assert.equal(compileTimeBody.safetyFacts.aliasing.mutableAliases, "diagnostic");
 assert.equal(compileTimeBody.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 
@@ -2927,7 +2928,7 @@ assert.match(programGraphDump, /node #[0-9a-f]{8} Module name:"hello"/);
 assert.match(programGraphDump, /edge #[0-9a-f]{8} function #[0-9a-f]{8} order:0/);
 assert.match(programGraphView, /^pub fn main\(world: World\) -> Void raises \{\n/);
 assert.match(programGraphView, /check world\.out\.write\("hello from zero\\n"\)/);
-assert.match(programGraphRichView, /bytesTail\(bytes\)\[1\]/);
+assert.match(programGraphRichView, /bytesTail\(bytesSpan\)\[1\]/);
 assert.match(programGraphRichView, /numbers\[2\.\.\]/);
 assert.match(programGraphCharView, /again == 'A'/);
 assert.match(programGraphBody.graphHash, /^graph:[0-9a-f]{16}$/);
@@ -3654,6 +3655,16 @@ const ownedUseAfterMove = await execFileAsync(zero, ["check", "conformance/nativ
 assert.notEqual(ownedUseAfterMove.code, 0);
 assert.match(ownedUseAfterMove.stderr, /OWN001/);
 
+for (const fixture of [
+  "owned-array-repeat.0",
+  "owned-array-element-use-after-move.0",
+  "owned-field-use-after-move.0",
+]) {
+  const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /OWN001/);
+}
+
 const unsupportedDrop = await execFileAsync(zero, ["check", "conformance/native/fail/unsupported-drop.0"]).catch((error) => error);
 assert.notEqual(unsupportedDrop.code, 0);
 assert.match(unsupportedDrop.stderr, /OWN002/);
@@ -3956,9 +3967,17 @@ for (const [fixture, code] of [
   ["duplicate-enum-case.0", /NAM004/],
   ["duplicate-shape-literal-field.0", /NAM004/],
   ["type-name-used-as-value.0", /TYP001/],
+  ["maybe-value-without-has.0", /MEM002/],
+  ["maybe-value-after-assignment.0", /MEM002/],
   ["read-while-mutably-borrowed.0", /BOR001/],
   ["array-reference-borrow-origin.0", /BOR001/],
   ["return-array-reference-escape.0", /BOR002/],
+  ["span-return-local-array.0", /BOR002/],
+  ["span-binding-return-local-array.0", /BOR002/],
+  ["span-assignment-return-local-array.0", /BOR002/],
+  ["span-slice-return-local-array.0", /BOR002/],
+  ["span-slice-return-array-param.0", /BOR002/],
+  ["span-call-return-local-array.0", /BOR002/],
   ["check-array-reference-origin.0", /BOR001/],
   ["check-maybe-reference-origin.0", /BOR001/],
   ["rescue-reference-origin.0", /BOR001/],

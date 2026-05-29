@@ -103,6 +103,7 @@ pub fn main(world: World) -> Void raises {
 ```
 
 Use `check maybeValue` only when absence should propagate as a failure in a fallible function.
+Read `maybeValue.value` only inside a visible `if maybeValue.has { ... }` guard.
 
 ## Resource Pattern
 

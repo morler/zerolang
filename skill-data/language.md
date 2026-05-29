@@ -148,7 +148,8 @@ pub fn main(world: World) -> Void raises {
 - `[N]T` is a fixed array.
 - `Span<T>` is a read-only contiguous view.
 - `MutSpan<T>` is a writable contiguous view.
-- `Maybe<T>` represents absence; inspect `.has` and `.value`.
+- Returning a span backed by local fixed-array storage is rejected; return an owned value or keep the view local.
+- `Maybe<T>` represents absence; read `.value` only inside a visible `.has` guard, or use `check` / `rescue`.
 - `owned<T>` marks explicit resource ownership.
 
 ```zero

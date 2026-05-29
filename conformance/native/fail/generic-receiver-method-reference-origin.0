@@ -10,6 +10,9 @@ pub fn main() -> Void {
     let y: i32 = 2
     var box: Box<ref<i32>> = Box { items: [&x] }
     let maybe: Maybe<ref<i32>> = box.get()
+    if !maybe.has {
+        return
+    }
     let current: ref<i32> = maybe.value
     box.items = [&y]
     x = 2

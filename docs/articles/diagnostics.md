@@ -156,6 +156,7 @@ The native compiler keeps stable codes for implemented control-flow and type rul
 - `RCV002`: a receiver-style call needs an addressable receiver, or a mutable receiver for `mutref<Self>`
 - `FLD001`: a type literal includes an unknown field
 - `FLD002`: a type literal omitted a required field that has no default
+- `MEM002`: a `Maybe<T>.value` payload read requires a visible `.has` guard, `check`, or `rescue`
 - `TAR001`: the requested target name is not in `zero targets`
 - `TAR002`: the selected target does not provide a capability required by the program
 - Bounds check failures: native executables print `zero bounds check failed` and
@@ -168,6 +169,7 @@ The native compiler keeps stable codes for implemented control-flow and type rul
 Standard library modules use the same structured diagnostic contract as compiler diagnostics.
 
 - `MEM001` reports malformed memory type forms such as `Maybe` without its required type argument.
+- `MEM002` reports a `Maybe<T>.value` read that has not been proven present by a visible `.has` guard.
 - `std.parse`, `std.json`, and `std.env` diagnostics carry source spans where
   applicable.
 - `std.time` diagnostics can use offset-only spans for single-token inputs.

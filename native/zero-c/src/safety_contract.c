@@ -26,7 +26,7 @@ void z_append_safety_facts_json(ZBuf *buf, const ZSafetyFactsProfile *profile) {
   zbuf_append(buf, ",\"unchecked\":false},\"overflow\":{\"policy\":\"literal-range-checked-runtime-unchecked\"");
   zbuf_append(buf, ",\"integerLiterals\":\"range-checked\",\"staticValues\":\"range-checked\"");
   zbuf_append(buf, ",\"runtimeArithmetic\":\"unchecked-machine-wrap\",\"unchecked\":true}");
-  zbuf_append(buf, ",\"initialization\":{\"locals\":\"initializer-required\",\"fields\":\"explicit-or-default-required\",\"fixedArrays\":\"literal-or-repeat-required\",\"maybePayloadReads\":\"type-checked\",\"unchecked\":false}");
+  zbuf_append(buf, ",\"initialization\":{\"locals\":\"initializer-required\",\"fields\":\"explicit-or-default-required\",\"fixedArrays\":\"literal-or-repeat-required\",\"maybePayloadReads\":\"guard-checked\",\"unchecked\":false}");
   zbuf_append(buf, ",\"aliasing\":{\"mutableAliases\":\"diagnostic\",\"sharedWhileMutable\":\"diagnostic\",\"references\":\"provenance-checked\"}");
   zbuf_append(buf, ",\"lifetimes\":{\"escapedLocalBorrow\":\"diagnostic\",\"returnedLocalBorrow\":\"diagnostic\",\"borrowedStdlibResults\":\"provenance-checked\"}");
   zbuf_append(buf, ",\"ownership\":{\"moves\":\"checked\",\"useAfterMove\":\"diagnostic\",\"ownedResourceDrop\":\"explicit\"}");
