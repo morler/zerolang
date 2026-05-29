@@ -848,6 +848,10 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
           if (!instr->value->data_len) {
             z_x64_emit_xor_eax_eax(text);
             z_x64_emit_xor_reg_reg(text, 2, false);
+          } else if (instr->value->element_type == IR_TYPE_I64 || instr->value->element_type == IR_TYPE_U64) {
+            z_x64_emit_mov_rax_u64(text, instr->value->int_value);
+            z_x64_emit_mov_rdx_from_rax(text);
+            z_x64_emit_mov_eax_u32(text, 1);
           } else {
             z_x64_emit_mov_eax_u32(text, (uint32_t)instr->value->int_value);
             z_x64_emit_mov_rdx_from_rax(text);

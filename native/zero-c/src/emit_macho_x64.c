@@ -845,6 +845,10 @@ static bool machx64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr 
           if (!instr->value->data_len) {
             z_x64_emit_xor_eax_eax(text);
             z_x64_emit_xor_reg_reg(text, 2, false);
+          } else if (machx64_type_is_i64(instr->value->element_type)) {
+            z_x64_emit_mov_rax_u64(text, instr->value->int_value);
+            z_x64_emit_mov_rdx_from_rax(text);
+            z_x64_emit_mov_eax_u32(text, 1);
           } else {
             z_x64_emit_mov_eax_u32(text, (uint32_t)instr->value->int_value);
             z_x64_emit_mov_rdx_from_rax(text);

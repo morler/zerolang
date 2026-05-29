@@ -1706,7 +1706,11 @@ static bool elf_emit_maybe_scalar_local_set(ZBuf *text, const IrFunction *fun, c
   if (instr->value->kind == IR_VALUE_MAYBE_SCALAR_LITERAL) {
     z_x64_emit_mov_eax_u32(text, instr->value->data_len ? 1u : 0u);
     elf_emit_store_local_slot_reg(text, local, 0, 0, false);
-    z_x64_emit_mov_eax_u32(text, (uint32_t)instr->value->int_value);
+    if (elf_type_is_i64(instr->value->element_type)) {
+      z_x64_emit_mov_rax_u64(text, instr->value->int_value);
+    } else {
+      z_x64_emit_mov_eax_u32(text, (uint32_t)instr->value->int_value);
+    }
     elf_emit_store_local_slot_reg(text, local, 8, 0, true);
     return true;
   }
@@ -1846,6 +1850,10 @@ static bool elf_emit_terminal_instr(ZBuf *text, const IrFunction *fun, const IrI
           if (!instr->value->data_len) {
             z_x64_emit_xor_eax_eax(text);
             z_x64_emit_xor_reg_reg(text, 2, false);
+          } else if (elf_type_is_i64(instr->value->element_type)) {
+            z_x64_emit_mov_rax_u64(text, instr->value->int_value);
+            z_x64_emit_mov_rdx_from_rax(text);
+            z_x64_emit_mov_eax_u32(text, 1);
           } else {
             z_x64_emit_mov_eax_u32(text, (uint32_t)instr->value->int_value);
             z_x64_emit_mov_rdx_from_rax(text);
