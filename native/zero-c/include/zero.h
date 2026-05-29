@@ -50,78 +50,6 @@ typedef struct {
 } ZDiag;
 
 typedef enum {
-  Z_ROW_TOKEN_WORD,
-  Z_ROW_TOKEN_STRING,
-  Z_ROW_TOKEN_CHAR,
-  Z_ROW_TOKEN_NUMBER,
-  Z_ROW_TOKEN_SYMBOL,
-  Z_ROW_TOKEN_COMMENT,
-  Z_ROW_TOKEN_NEWLINE,
-  Z_ROW_TOKEN_INDENT,
-  Z_ROW_TOKEN_DEDENT,
-  Z_ROW_TOKEN_EOF
-} ZRowTokenKind;
-
-typedef struct {
-  ZRowTokenKind kind;
-  char *text;
-  int line;
-  int column;
-  size_t offset;
-  size_t length;
-} ZRowToken;
-
-typedef struct {
-  ZRowToken *items;
-  size_t len;
-  size_t cap;
-} ZRowTokenVec;
-
-typedef struct {
-  size_t row_count;
-  size_t comment_count;
-  size_t blank_line_count;
-  size_t max_indent_depth;
-} ZRowSyntaxFacts;
-
-#define Z_ROW_NO_PARENT ((size_t)-1)
-
-typedef enum {
-  Z_ROW_TRIVIA_LEADING_COMMENT,
-  Z_ROW_TRIVIA_TRAILING_COMMENT,
-  Z_ROW_TRIVIA_BLOCK_COMMENT,
-  Z_ROW_TRIVIA_BLANK_LINE
-} ZRowTriviaKind;
-
-typedef struct {
-  ZRowTriviaKind kind;
-  size_t row;
-  size_t parent;
-  size_t token;
-  size_t indent_depth;
-  int line;
-  int column;
-} ZRowTrivia;
-
-typedef struct {
-  size_t parent;
-  size_t first_token;
-  size_t token_count;
-  size_t indent_depth;
-  int line;
-  int column;
-} ZRowNode;
-
-typedef struct {
-  ZRowNode *items;
-  size_t len;
-  size_t cap;
-  ZRowTrivia *trivia;
-  size_t trivia_len;
-  size_t trivia_cap;
-} ZRowTree;
-
-typedef enum {
   EXPR_IDENT,
   EXPR_STRING,
   EXPR_CHAR,
@@ -900,14 +828,6 @@ size_t z_direct_target_max_frame_bytes(const ZTargetInfo *target, const IrProgra
 bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profile, const ZTargetInfo *target, const char *c_file, const char *object_file, const char *include_dir, const char *extra_c_flags);
 bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *target, const char *const *object_files, size_t object_count, const char *exe_file, const char *pre_link_flags, const char *post_object_flags);
 bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const char *profile, const ZTargetInfo *target);
-
-ZRowTokenVec z_row_tokenize(const char *source, ZDiag *diag);
-bool z_row_analyze_layout(const ZRowTokenVec *tokens, ZRowSyntaxFacts *facts, ZDiag *diag);
-bool z_row_parse_layout(const ZRowTokenVec *tokens, ZRowTree *tree, ZDiag *diag);
-Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *diag);
-char *z_format_row_layout(const ZRowTokenVec *tokens, const ZRowTree *tree);
-void z_free_row_tree(ZRowTree *tree);
-void z_free_row_tokens(ZRowTokenVec *tokens);
 
 void z_free_program(Program *program);
 

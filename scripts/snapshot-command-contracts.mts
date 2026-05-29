@@ -626,7 +626,6 @@ const graphImportJsonPath = join(outDir, "hello.imported-json.program-graph");
 const graphInspectOutPath = join(outDir, "hello.inspect.json");
 const graphCanonicalPath = join(outDir, "hello.canonical.program-graph");
 const graphSourceTextOutPath = join(outDir, "hello.source-output.0");
-const graphSourceRowOutPath = join(outDir, "hello.source-output.row");
 const graphValidateSourceTextOutPath = join(outDir, "hello.validate-source-output.0");
 const checkedInGraphSourcePath = "conformance/program-graph/hello.0";
 const checkedInGraphPackageDir = "conformance/program-graph";
@@ -727,7 +726,6 @@ rmSync(graphImportPath, { force: true });
 rmSync(graphImportJsonPath, { force: true });
 rmSync(graphCanonicalPath, { force: true });
 rmSync(graphSourceTextOutPath, { force: true });
-rmSync(graphSourceRowOutPath, { force: true });
 rmSync(graphValidateSourceTextOutPath, { force: true });
 rmSync(checkedInGraphBuildPath, { force: true });
 rmSync(checkedInGraphRunPath, { force: true });
@@ -865,14 +863,8 @@ const graphSourceTextOutJson = json(["graph", "dump", "--json", "--out", graphSo
 assert.notEqual(graphSourceTextOutJson.code, 0);
 assert.equal(graphSourceTextOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
 assert.equal(graphSourceTextOutJson.body.diagnostics[0].expected, "zero graph dump --out <program-graph-artifact> <input>");
-assert.equal(graphSourceTextOutJson.body.diagnostics[0].help, ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
+assert.equal(graphSourceTextOutJson.body.diagnostics[0].help, ".0 files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
 assert.equal(existsSync(graphSourceTextOutPath), false);
-const graphSourceRowOutJson = json(["graph", "import", "--json", "--out", graphSourceRowOutPath, "examples/hello.0"], { allowFailure: true });
-assert.notEqual(graphSourceRowOutJson.code, 0);
-assert.equal(graphSourceRowOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
-assert.equal(graphSourceRowOutJson.body.diagnostics[0].expected, "zero graph dump --out <program-graph-artifact> <input>");
-assert.equal(graphSourceRowOutJson.body.diagnostics[0].help, ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
-assert.equal(existsSync(graphSourceRowOutPath), false);
 const graphValidateSourceTextOutJson = json(["graph", "validate", "--json", "--out", graphValidateSourceTextOutPath, graphDumpPath], { allowFailure: true });
 assert.notEqual(graphValidateSourceTextOutJson.code, 0);
 assert.equal(graphValidateSourceTextOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
@@ -2198,7 +2190,7 @@ assert.equal(parseTree.functions[0].name, "main");
 assert.equal(parseTree.functions[0].paramCount, 1);
 assert.deepEqual(parseTree.functions[0].bodyKinds, ["if", "while", "check", "return"]);
 
-const unsupportedSourceFixture = join(outDir, "unsupported-source.row");
+const unsupportedSourceFixture = join(outDir, "unsupported-source.txt");
 const unsupportedSourceText =
   "# command fixture\n" +
   "fn inc i32 value i32\n" +
@@ -2213,14 +2205,21 @@ for (const args of [
   ["tokens", "--json", unsupportedSourceFixture],
   ["parse", "--json", unsupportedSourceFixture],
   ["build", "--json", unsupportedSourceFixture],
-  ["graph", "check", "--json", unsupportedSourceFixture],
-  ["graph", "view", "--json", unsupportedSourceFixture],
 ] as string[][]) {
   const rejected = json(args, { allowFailure: true });
   assert.notEqual(rejected.code, 0);
   assert.equal(rejected.body.diagnostics[0].code, "BLD002");
   assert.equal(rejected.body.diagnostics[0].message, "expected Zero source file or package");
   assert.equal(rejected.body.diagnostics[0].expected, ".0 source file, zero.json, or package directory");
+}
+for (const args of [
+  ["graph", "check", "--json", unsupportedSourceFixture],
+  ["graph", "view", "--json", unsupportedSourceFixture],
+] as string[][]) {
+  const rejected = json(args, { allowFailure: true });
+  assert.notEqual(rejected.code, 0);
+  assert.equal(rejected.body.diagnostics[0].code, "PAR100");
+  assert.equal(rejected.body.diagnostics[0].message, "expected zero-graph v1 header");
 }
 const unsupportedFmtRejected = zero(["fmt", "--check", unsupportedSourceFixture], { allowFailure: true });
 assert.notEqual(unsupportedFmtRejected.code, 0);
@@ -2235,13 +2234,13 @@ writeFileSync(
   JSON.stringify(
     {
       package: { name: "unsupported-source-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.row" } },
+      targets: { cli: { kind: "exe", main: "src/main.txt" } },
     },
     null,
     2,
   ) + "\n",
 );
-writeFileSync(join(unsupportedSourcePackage, "src", "main.row"), unsupportedSourceText);
+writeFileSync(join(unsupportedSourcePackage, "src", "main.txt"), unsupportedSourceText);
 const unsupportedPackageRejected = json(["check", "--json", unsupportedSourcePackage], { allowFailure: true });
 assert.notEqual(unsupportedPackageRejected.code, 0);
 assert.equal(unsupportedPackageRejected.body.diagnostics[0].code, "BLD002");

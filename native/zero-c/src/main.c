@@ -443,22 +443,6 @@ static int embedded_skills_command(int argc, char **argv, bool json) {
   return embedded_skills_error(json, message);
 }
 
-static const char *row_token_kind_name(ZRowTokenKind kind) {
-  switch (kind) {
-    case Z_ROW_TOKEN_WORD: return "word";
-    case Z_ROW_TOKEN_STRING: return "string";
-    case Z_ROW_TOKEN_CHAR: return "char";
-    case Z_ROW_TOKEN_NUMBER: return "number";
-    case Z_ROW_TOKEN_SYMBOL: return "symbol";
-    case Z_ROW_TOKEN_COMMENT: return "comment";
-    case Z_ROW_TOKEN_NEWLINE: return "newline";
-    case Z_ROW_TOKEN_INDENT: return "indent";
-    case Z_ROW_TOKEN_DEDENT: return "dedent";
-    case Z_ROW_TOKEN_EOF: return "eof";
-  }
-  return "unknown";
-}
-
 static const char *canonical_token_kind_name(ZCanonicalTokenKind kind) {
   switch (kind) {
     case Z_CANON_TOKEN_WORD: return "word";
@@ -471,29 +455,6 @@ static const char *canonical_token_kind_name(ZCanonicalTokenKind kind) {
     case Z_CANON_TOKEN_EOF: return "eof";
   }
   return "unknown";
-}
-
-static void append_row_tokens_json(ZBuf *buf, const char *source_file, const ZRowTokenVec *tokens) {
-  zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"sourceFile\": ");
-  append_json_string(buf, source_file);
-  zbuf_append(buf, ",\n  \"syntax\": \"row\",\n  \"tokens\": [\n");
-  for (size_t i = 0; tokens && i < tokens->len; i++) {
-    const ZRowToken *token = &tokens->items[i];
-    zbuf_append(buf, "    {\"kind\": ");
-    append_json_string(buf, row_token_kind_name(token->kind));
-    zbuf_append(buf, ", \"text\": ");
-    append_json_string(buf, token->text);
-    zbuf_appendf(
-      buf,
-      ", \"line\": %d, \"column\": %d, \"offset\": %zu, \"length\": %zu}%s\n",
-      token->line,
-      token->column,
-      token->offset,
-      token->length,
-      i + 1 < tokens->len ? "," : ""
-    );
-  }
-  zbuf_append(buf, "  ]\n}\n");
 }
 
 static void append_canonical_tokens_json(ZBuf *buf, const char *source_file, const ZCanonicalTokenVec *tokens) {
@@ -3716,8 +3677,8 @@ static const char *emit_kind_name(EmitKind emit) {
 
 static long long now_ms(void);
 static bool has_suffix(const char *path, const char *suffix);
-static bool direct_row_reserved_word(const char *text);
-static void direct_row_append_source(SourceInput *input, ZBuf *combined, const char *path, const char *source);
+static bool direct_source_reserved_word(const char *text);
+static void direct_source_append(SourceInput *input, ZBuf *combined, const char *path, const char *source);
 
 typedef struct { const char *path; const char *source; } DirectSourceReplacement;
 
@@ -3753,8 +3714,7 @@ static char *direct_module_name_from_path(const char *path) {
   const char *name = path ? strrchr(path, '/') : NULL;
   name = name ? name + 1 : (path ? path : "main");
   size_t len = strlen(name);
-  if (len > 4 && strcmp(name + len - 4, ".row") == 0) len -= 4;
-  else if (len > 2 && strcmp(name + len - 2, ".0") == 0) len -= 2;
+  if (len > 2 && strcmp(name + len - 2, ".0") == 0) len -= 2;
   return len > 0 ? z_strndup(name, len) : z_strdup("main");
 }
 
@@ -3787,7 +3747,7 @@ static bool direct_input_has_file(const SourceInput *input, const char *path) {
   return false;
 }
 
-static char *direct_row_module_name_from_path(const char *root, const char *path) {
+static char *direct_source_module_name_from_path(const char *root, const char *path) {
   const char *relative = path ? path : "main";
   size_t root_len = root ? strlen(root) : 0;
   if (root && strncmp(relative, root, root_len) == 0) {
@@ -3798,8 +3758,7 @@ static char *direct_row_module_name_from_path(const char *root, const char *path
     relative = slash ? slash + 1 : relative;
   }
   size_t len = strlen(relative);
-  if (len > 4 && strcmp(relative + len - 4, ".row") == 0) len -= 4;
-  else if (len > 2 && strcmp(relative + len - 2, ".0") == 0) len -= 2;
+  if (len > 2 && strcmp(relative + len - 2, ".0") == 0) len -= 2;
   if (len >= 4 && strcmp(relative + len - 4, "/mod") == 0) len -= 4;
   ZBuf buf;
   zbuf_init(&buf);
@@ -3851,31 +3810,13 @@ static void direct_input_add_source_metadata(SourceInput *input) {
   }
 }
 
-static bool load_direct_row_source(const char *path, SourceInput *input, ZDiag *diag) {
+static bool load_direct_source(const char *path, SourceInput *input, ZDiag *diag) {
   input->source_file = z_strdup(path);
   input->source = z_read_file(path, diag);
   if (!input->source) return false;
-  input->canonical_text_source = has_suffix(path, ".0");
+  input->canonical_text_source = true;
   direct_input_add_source_metadata(input);
   return true;
-}
-
-static char *format_row_source_text(const char *source, ZDiag *diag) {
-  ZRowTokenVec tokens = z_row_tokenize(source, diag);
-  if (diag->code != 0) {
-    z_free_row_tokens(&tokens);
-    return NULL;
-  }
-  ZRowTree tree = {0};
-  if (!z_row_parse_layout(&tokens, &tree, diag)) {
-    z_free_row_tree(&tree);
-    z_free_row_tokens(&tokens);
-    return NULL;
-  }
-  char *formatted = z_format_row_layout(&tokens, &tree);
-  z_free_row_tree(&tree);
-  z_free_row_tokens(&tokens);
-  return formatted;
 }
 
 static bool direct_input_push_symbol(SourceInput *input, const char *module, const char *kind, const char *name, bool is_public, ZDiag *diag) {
@@ -3906,11 +3847,11 @@ static bool direct_input_push_symbol(SourceInput *input, const char *module, con
   return true;
 }
 
-static bool direct_row_reserved_internal_symbol(const char *name) {
+static bool direct_source_reserved_internal_symbol(const char *name) {
   return name && strncmp(name, "__zero_", strlen("__zero_")) == 0;
 }
 
-static bool direct_row_path_has_module_suffix(const char *path, const char *module_path) {
+static bool direct_source_path_has_module_suffix(const char *path, const char *module_path) {
   if (!path || !module_path) return false;
   size_t path_len = strlen(path);
   size_t module_len = strlen(module_path);
@@ -3927,10 +3868,10 @@ static bool direct_row_path_has_module_suffix(const char *path, const char *modu
   return before == '/' || before == '\\';
 }
 
-static bool direct_row_is_embedded_std_source_file(const char *path, const char *source) {
+static bool direct_source_is_embedded_std_source_file(const char *path, const char *source) {
   for (size_t i = 0; i < z_std_source_module_count(); i++) {
     const ZStdSourceModule *module = z_std_source_module_at(i);
-    if (!module || !direct_row_path_has_module_suffix(path, module->path)) continue;
+    if (!module || !direct_source_path_has_module_suffix(path, module->path)) continue;
     char *embedded = z_std_source_module_copy_source(module);
     bool ok = embedded && strcmp(source ? source : "", embedded) == 0;
     free(embedded);
@@ -3941,7 +3882,7 @@ static bool direct_row_is_embedded_std_source_file(const char *path, const char 
 
 static bool direct_input_add_program_symbol(SourceInput *input, const char *module, const char *kind, const char *name, bool is_public, bool allow_internal_names, int line, int column, ZDiag *diag) {
   if (!name || !name[0]) return true;
-  if (!allow_internal_names && direct_row_reserved_internal_symbol(name)) {
+  if (!allow_internal_names && direct_source_reserved_internal_symbol(name)) {
     diag->code = 3008;
     diag->line = line > 0 ? line : 1;
     diag->column = column > 0 ? column : 1;
@@ -4016,7 +3957,7 @@ static bool direct_canonical_append_std_source(SourceInput *input, ZBuf *combine
   direct_input_push_string(&input->source_files, &input->source_file_count, module->path);
   direct_input_push_module(input, module->module, module->path);
   bool ok = direct_input_add_program_symbols(input, &program, module->module, true, diag);
-  if (ok) direct_row_append_source(input, combined, module->path, source);
+  if (ok) direct_source_append(input, combined, module->path, source);
   z_free_program(&program);
   free(source);
   return ok && (!diag || diag->code == 0);
@@ -4064,7 +4005,7 @@ static bool direct_canonical_identifier_text(const char *text) {
   for (size_t i = 1; text[i]; i++) {
     if (!(isalnum((unsigned char)text[i]) || text[i] == '_')) return false;
   }
-  return !direct_row_reserved_word(text);
+  return !direct_source_reserved_word(text);
 }
 
 static bool direct_canonical_validate_import_module(const UseImport *item, ZDiag *diag) {
@@ -4101,25 +4042,7 @@ static bool direct_canonical_validate_import_module(const UseImport *item, ZDiag
   return true;
 }
 
-static bool parse_row_source_text(const char *source, Program *program, ZDiag *diag) {
-  ZRowTokenVec tokens = z_row_tokenize(source, diag);
-  if (diag->code != 0) {
-    z_free_row_tokens(&tokens);
-    return false;
-  }
-  ZRowTree tree = {0};
-  if (!z_row_parse_layout(&tokens, &tree, diag)) {
-    z_free_row_tree(&tree);
-    z_free_row_tokens(&tokens);
-    return false;
-  }
-  *program = z_parse_row(&tokens, &tree, diag);
-  z_free_row_tree(&tree);
-  z_free_row_tokens(&tokens);
-  return diag->code == 0;
-}
-
-static bool direct_row_reserved_word(const char *text) {
+static bool direct_source_reserved_word(const char *text) {
   const char *keywords[] = {
     "as", "break", "check", "choice", "const", "continue", "defer", "else", "enum", "export", "extern", "false",
     "fn", "for", "fun", "if", "import", "in", "let", "match", "meta", "mut", "null", "packed", "pub",
@@ -4132,33 +4055,33 @@ static bool direct_row_reserved_word(const char *text) {
   return false;
 }
 
-static bool direct_row_stack_contains(char **stack, size_t len, const char *path) {
+static bool direct_source_stack_contains(char **stack, size_t len, const char *path) {
   for (size_t i = 0; i < len; i++) {
     if (strcmp(stack[i], path) == 0) return true;
   }
   return false;
 }
 
-static void direct_row_format_cycle_chain(const char *root, char **stack, size_t stack_len, const char *path, ZBuf *out) {
+static void direct_source_format_cycle_chain(const char *root, char **stack, size_t stack_len, const char *path, ZBuf *out) {
   bool started = false;
   for (size_t i = 0; i < stack_len; i++) {
     if (!started && strcmp(stack[i], path) != 0) continue;
     started = true;
     if (out->len > 0) zbuf_append(out, " -> ");
-    char *module = direct_row_module_name_from_path(root, stack[i]);
+    char *module = direct_source_module_name_from_path(root, stack[i]);
     zbuf_append(out, module);
     free(module);
   }
   if (out->len > 0) zbuf_append(out, " -> ");
-  char *module = direct_row_module_name_from_path(root, path);
+  char *module = direct_source_module_name_from_path(root, path);
   zbuf_append(out, module);
   free(module);
 }
 
-static void direct_row_set_cycle_diag(ZDiag *diag, const char *root, char **stack, size_t stack_len, const char *cycle_path, const char *diag_path, int line, int column, int length) {
+static void direct_source_set_cycle_diag(ZDiag *diag, const char *root, char **stack, size_t stack_len, const char *cycle_path, const char *diag_path, int line, int column, int length) {
   ZBuf chain;
   zbuf_init(&chain);
-  direct_row_format_cycle_chain(root, stack, stack_len, cycle_path, &chain);
+  direct_source_format_cycle_chain(root, stack, stack_len, cycle_path, &chain);
   diag->code = 7002;
   diag->path = z_strdup(diag_path ? diag_path : "");
   diag->line = line > 0 ? line : 1;
@@ -4170,7 +4093,7 @@ static void direct_row_set_cycle_diag(ZDiag *diag, const char *root, char **stac
   zbuf_free(&chain);
 }
 
-static void direct_row_append_source(SourceInput *input, ZBuf *combined, const char *path, const char *source) {
+static void direct_source_append(SourceInput *input, ZBuf *combined, const char *path, const char *source) {
   const char *line = source ? source : "";
   int original_line = 1;
   if (!*line) {
@@ -4194,14 +4117,14 @@ static char *direct_read_source_with_replacement(const char *path, const DirectS
 
 static bool direct_canonical_resolve_file(const char *path, const char *root, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len, const DirectSourceReplacement *replacement) {
   if (direct_input_has_file(input, path)) return true;
-  if (direct_row_stack_contains(*stack, *stack_len, path)) {
-    direct_row_set_cycle_diag(diag, root, *stack, *stack_len, path, path, 1, 1, 1);
+  if (direct_source_stack_contains(*stack, *stack_len, path)) {
+    direct_source_set_cycle_diag(diag, root, *stack, *stack_len, path, path, 1, 1, 1);
     return false;
   }
 
   char *source = direct_read_source_with_replacement(path, replacement, diag);
   if (!source) return false;
-  char *module = direct_row_module_name_from_path(root, path);
+  char *module = direct_source_module_name_from_path(root, path);
   *stack = z_checked_reallocarray(*stack, *stack_len + 1, sizeof(char *));
   (*stack)[(*stack_len)++] = z_strdup(path);
 
@@ -4244,8 +4167,8 @@ static bool direct_canonical_resolve_file(const char *path, const char *root, So
       break;
     }
     int import_length = item->end_column > item->column ? item->end_column - item->column : 1;
-    if (direct_row_stack_contains(*stack, *stack_len, import_path)) {
-      direct_row_set_cycle_diag(diag, root, *stack, *stack_len, import_path, path, item->line, item->column, import_length);
+    if (direct_source_stack_contains(*stack, *stack_len, import_path)) {
+      direct_source_set_cycle_diag(diag, root, *stack, *stack_len, import_path, path, item->line, item->column, import_length);
       free(import_path);
       break;
     }
@@ -4258,10 +4181,10 @@ static bool direct_canonical_resolve_file(const char *path, const char *root, So
   if (diag->code == 0) {
     direct_input_push_string(&input->source_files, &input->source_file_count, path);
     direct_input_push_module(input, module, path);
-    bool allow_internal_names = direct_row_is_embedded_std_source_file(path, source);
+    bool allow_internal_names = direct_source_is_embedded_std_source_file(path, source);
     if (allow_internal_names && input->source_file && strcmp(input->source_file, path) == 0) input->allow_missing_main = true;
     if (direct_input_add_program_symbols(input, &program, module, allow_internal_names, diag)) {
-      direct_row_append_source(input, combined, path, source);
+      direct_source_append(input, combined, path, source);
     } else if (!diag->path) {
       diag->path = z_strdup(path);
     }
@@ -4288,7 +4211,7 @@ static bool resolve_direct_canonical_source(const char *path, SourceInput *input
   return ok;
 }
 
-static bool resolve_direct_row_package_source(const char *input_path, SourceInput *input, ZDiag *diag, bool *handled) {
+static bool resolve_direct_package_source(const char *input_path, SourceInput *input, ZDiag *diag, bool *handled) {
   *handled = false;
   char *manifest_path = z_manifest_path_for_input(input_path);
   if (!manifest_path) return false;
@@ -4364,18 +4287,27 @@ static void set_source_input_diag(const char *input_path, ZDiag *diag) {
 
 static bool load_command_source(const char *input_path, SourceInput *input, ZDiag *diag) {
   if (is_zero_source_path(input_path)) {
-    return load_direct_row_source(input_path, input, diag);
+    return load_direct_source(input_path, input, diag);
   }
-  bool handled_row_package = false;
-  if (resolve_direct_row_package_source(input_path, input, diag, &handled_row_package)) {
+  bool handled_package = false;
+  if (resolve_direct_package_source(input_path, input, diag, &handled_package)) {
     return true;
   }
-  if (handled_row_package) return false;
+  if (handled_package) return false;
   set_source_input_diag(input_path, diag);
   return false;
 }
 
-static bool load_format_source(const char *input_path, SourceInput *input, ZDiag *diag) { if (is_zero_source_path(input_path)) return load_direct_row_source(input_path, input, diag); SourceInput resolved = {0}; if (!load_command_source(input_path, &resolved, diag)) return false; char *source_file = z_strdup(resolved.source_file ? resolved.source_file : input_path); z_free_source(&resolved); bool ok = load_direct_row_source(source_file, input, diag); free(source_file); return ok; }
+static bool load_format_source(const char *input_path, SourceInput *input, ZDiag *diag) {
+  if (is_zero_source_path(input_path)) return load_direct_source(input_path, input, diag);
+  SourceInput resolved = {0};
+  if (!load_command_source(input_path, &resolved, diag)) return false;
+  char *source_file = z_strdup(resolved.source_file ? resolved.source_file : input_path);
+  z_free_source(&resolved);
+  bool ok = load_direct_source(source_file, input, diag);
+  free(source_file);
+  return ok;
+}
 
 static bool finish_checked_source_input(const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag, long long parse_ms) {
   input->parse_ms = parse_ms;
@@ -4395,17 +4327,6 @@ static bool finish_checked_source_input(const ZTargetInfo *target, SourceInput *
   return true;
 }
 
-static bool check_row_input(const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag, long long resolve_started_ms) {
-  input->resolve_ms = now_ms() - resolve_started_ms;
-  diag->path = input->source_file;
-  long long phase_started = now_ms();
-  if (!parse_row_source_text(input->source, program, diag)) {
-    z_map_source_diag(input, diag);
-    return false;
-  }
-  return finish_checked_source_input(target, input, program, diag, now_ms() - phase_started);
-}
-
 static bool try_check_canonical_text_input(const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag, long long resolve_started_ms, bool *parsed) {
   if (parsed) *parsed = false;
   input->resolve_ms = now_ms() - resolve_started_ms;
@@ -4423,17 +4344,14 @@ static bool try_check_canonical_text_input(const ZTargetInfo *target, SourceInpu
 
 static bool compile_input(const char *input_path, const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag) {
   long long phase_started = now_ms();
-  bool handled_row_package = false;
-  if (resolve_direct_row_package_source(input_path, input, diag, &handled_row_package)) {
-    if (input->canonical_text_source) {
-      bool parsed_canonical = false;
-      if (try_check_canonical_text_input(target, input, program, diag, phase_started, &parsed_canonical)) return true;
-      if (!parsed_canonical) z_map_source_diag(input, diag);
-      return false;
-    }
-    return check_row_input(target, input, program, diag, phase_started);
+  bool handled_package = false;
+  if (resolve_direct_package_source(input_path, input, diag, &handled_package)) {
+    bool parsed_canonical = false;
+    if (try_check_canonical_text_input(target, input, program, diag, phase_started, &parsed_canonical)) return true;
+    if (!parsed_canonical) z_map_source_diag(input, diag);
+    return false;
   }
-  if (handled_row_package) return false;
+  if (handled_package) return false;
 
   if (is_zero_source_path(input_path)) {
     ZDiag canonical_diag = {0};
@@ -9582,7 +9500,7 @@ static bool reject_graph_source_text_out(const Command *command, const char *exp
   snprintf(diag->message, sizeof(diag->message), "program graph output must not use source text extension");
   snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "zero graph <subcommand> --out <program-graph-artifact> <input>");
   snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
-  snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
+  snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
   if (command->json) print_diag_json(command->out, diag);
   else print_diag(command->out, diag);
   return true;
@@ -9643,19 +9561,17 @@ static bool load_graph_from_checked_canonical_source_file(const char *path, Sour
 static bool parse_graph_read_source_input(SourceInput *input, Program *program, ZDiag *diag) {
   if (!input || !program) return false;
   if (diag) diag->path = input->source_file;
-  bool ok = input->canonical_text_source
-    ? z_parse_canonical_text_program_source(input->source, program, diag)
-    : parse_row_source_text(input->source, program, diag);
+  bool ok = z_parse_canonical_text_program_source(input->source, program, diag);
   if (!ok && diag) z_map_source_diag(input, diag);
   return ok;
 }
 
 static bool load_source_program_for_graph_read(const char *input_path, SourceInput *input, Program *program, ZDiag *diag) {
-  bool handled_row_package = false;
-  if (resolve_direct_row_package_source(input_path, input, diag, &handled_row_package)) {
+  bool handled_package = false;
+  if (resolve_direct_package_source(input_path, input, diag, &handled_package)) {
     return parse_graph_read_source_input(input, program, diag);
   }
-  if (handled_row_package) return false;
+  if (handled_package) return false;
 
   if (is_zero_source_path(input_path)) {
     if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
@@ -9679,10 +9595,6 @@ static bool load_graph_input_for_read(const Command *command, const ZTargetInfo 
   memset(program, 0, sizeof(*program));
   memset(graph, 0, sizeof(*graph));
   if (kind) *kind = GRAPH_INPUT_ARTIFACT;
-  if (command && command->input && has_suffix(command->input, ".row")) {
-    set_source_input_diag(command->input, diag);
-    return false;
-  }
   if (graph_input_is_source_path(command)) return load_graph_from_current_source(command, target, input, program, graph, kind, diag);
 
   char *manifest_path = z_manifest_path_for_input(command->input);
@@ -9701,10 +9613,6 @@ static bool load_graph_input_for_patch(const Command *command, SourceInput *inpu
   memset(program, 0, sizeof(*program));
   memset(graph, 0, sizeof(*graph));
   if (kind) *kind = GRAPH_INPUT_ARTIFACT;
-  if (command && command->input && has_suffix(command->input, ".row")) {
-    set_source_input_diag(command->input, diag);
-    return false;
-  }
   if (!graph_input_is_source_path(command)) return z_program_graph_load(command->input, graph, diag);
 
   if (!load_graph_from_checked_canonical_source_file(command->input, input, program, graph, diag)) {
@@ -10238,7 +10146,7 @@ static bool save_graph_patch_output(const Command *command, ZProgramGraph *graph
     snprintf(diag->message, sizeof(diag->message), "program graph output must not use source text extension");
     snprintf(diag->expected, sizeof(diag->expected), "zero graph patch --out <program-graph-artifact> <program-graph-artifact> (<patch-file>|--op <operation>)");
     snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
-    snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
+    snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
     return false;
   }
   if (!z_program_graph_save(command->out, graph, diag)) return false;
@@ -10919,16 +10827,12 @@ int main(int argc, char **argv) {
     }
     diag.path = fmt_input.source_file;
     char *formatted = NULL;
-    if (fmt_input.canonical_text_source) {
-      ZBuf out;
-      zbuf_init(&out);
-      if (z_canonical_text_format_source(fmt_input.source, &out, &diag)) {
-        formatted = out.data;
-      } else {
-        zbuf_free(&out);
-      }
+    ZBuf out;
+    zbuf_init(&out);
+    if (z_canonical_text_format_source(fmt_input.source, &out, &diag)) {
+      formatted = out.data;
     } else {
-      formatted = format_row_source_text(fmt_input.source, &diag);
+      zbuf_free(&out);
     }
     if (!formatted || diag.code != 0) {
       z_map_source_diag(&fmt_input, &diag);
@@ -10969,51 +10873,27 @@ int main(int argc, char **argv) {
       return 1;
     }
     diag.path = token_input.source_file;
-    if (token_input.canonical_text_source) {
-      ZCanonicalTokenVec tokens = z_canonical_text_tokenize(token_input.source, &diag);
-      if (diag.code != 0) {
-        z_map_source_diag(&token_input, &diag);
-        if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
-        else print_diag(diag.path ? diag.path : command.input, &diag);
-        z_free_canonical_text_tokens(&tokens);
-        z_free_source(&token_input);
-        return 1;
-      }
-      if (command.json) {
-        ZBuf buf;
-        zbuf_init(&buf);
-        append_canonical_tokens_json(&buf, token_input.source_file, &tokens);
-        fputs(buf.data, stdout);
-        zbuf_free(&buf);
-      } else {
-        for (size_t i = 0; i < tokens.len; i++) {
-          printf("%s %s %d:%d\n", canonical_token_kind_name(tokens.items[i].kind), tokens.items[i].text, tokens.items[i].line, tokens.items[i].column);
-        }
-      }
+    ZCanonicalTokenVec tokens = z_canonical_text_tokenize(token_input.source, &diag);
+    if (diag.code != 0) {
+      z_map_source_diag(&token_input, &diag);
+      if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_canonical_text_tokens(&tokens);
-    } else {
-      ZRowTokenVec tokens = z_row_tokenize(token_input.source, &diag);
-      if (diag.code != 0) {
-        z_map_source_diag(&token_input, &diag);
-        if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
-        else print_diag(diag.path ? diag.path : command.input, &diag);
-        z_free_row_tokens(&tokens);
-        z_free_source(&token_input);
-        return 1;
-      }
-      if (command.json) {
-        ZBuf buf;
-        zbuf_init(&buf);
-        append_row_tokens_json(&buf, token_input.source_file, &tokens);
-        fputs(buf.data, stdout);
-        zbuf_free(&buf);
-      } else {
-        for (size_t i = 0; i < tokens.len; i++) {
-          printf("%s %s %d:%d\n", row_token_kind_name(tokens.items[i].kind), tokens.items[i].text, tokens.items[i].line, tokens.items[i].column);
-        }
-      }
-      z_free_row_tokens(&tokens);
+      z_free_source(&token_input);
+      return 1;
     }
+    if (command.json) {
+      ZBuf buf;
+      zbuf_init(&buf);
+      append_canonical_tokens_json(&buf, token_input.source_file, &tokens);
+      fputs(buf.data, stdout);
+      zbuf_free(&buf);
+    } else {
+      for (size_t i = 0; i < tokens.len; i++) {
+        printf("%s %s %d:%d\n", canonical_token_kind_name(tokens.items[i].kind), tokens.items[i].text, tokens.items[i].line, tokens.items[i].column);
+      }
+    }
+    z_free_canonical_text_tokens(&tokens);
     z_free_source(&token_input);
     return 0;
   }
@@ -11033,11 +10913,7 @@ int main(int argc, char **argv) {
     }
     diag.path = parse_input.source_file;
     Program parsed = {0};
-    if (parse_input.canonical_text_source) {
-      z_parse_canonical_text_program_source(parse_input.source, &parsed, &diag);
-    } else {
-      parse_row_source_text(parse_input.source, &parsed, &diag);
-    }
+    z_parse_canonical_text_program_source(parse_input.source, &parsed, &diag);
     if (diag.code != 0) {
       z_map_source_diag(&parse_input, &diag);
       if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
