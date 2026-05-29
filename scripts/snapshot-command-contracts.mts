@@ -447,6 +447,10 @@ function assertShipReport(report, outPath) {
   assert.equal(report.target, "linux-musl-x64");
   assert.equal(report.generatedCBytes, 0);
   assert.equal(report.cBridgeFallback, false);
+  assert.equal(report.safetyFacts.schemaVersion, 1);
+  assert.equal(report.safetyFacts.profileKey, "small");
+  assert.equal(report.safetyFacts.bounds.policy, "checked");
+  assert.equal(report.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
   assert.equal(report.releasePreview.deterministic, true);
   assertReleaseTargetContract(report, {
     target: "linux-musl-x64",
@@ -466,7 +470,10 @@ function assertShipReport(report, outPath) {
   for (const artifact of report.artifacts) {
     assert(existsSync(artifact.path), `${artifact.kind} should exist at ${artifact.path}`);
   }
-  assert.equal(JSON.parse(readFileSync(report.releasePreview.sizeReport, "utf8")).generatedCBytes, 0);
+  const sizeReport = JSON.parse(readFileSync(report.releasePreview.sizeReport, "utf8"));
+  assert.equal(sizeReport.generatedCBytes, 0);
+  assert.equal(sizeReport.safetyFacts.profileKey, "small");
+  assert.equal(sizeReport.safetyFacts.bounds.optimizerElision, false);
   assert.equal(JSON.parse(readFileSync(report.releasePreview.debugSymbols, "utf8")).kind, "zero-debug-symbol-metadata");
   assert.equal(JSON.parse(readFileSync(report.releasePreview.sbom, "utf8")).kind, "zero-sbom-placeholder");
   assert.match(readFileSync(report.releasePreview.archive, "utf8"), /zero archive manifest v1/);
@@ -495,11 +502,11 @@ function assertReleaseTargetContract(report, expected) {
 
 const generatedCBytesBeforeReadOnlyCommands = json(["size", "--json", "examples/memory-package"]).body.generatedCBytes;
 
-assert.equal(zero(["--version"]).stdout, "zero 0.1.4\n");
+assert.equal(zero(["--version"]).stdout, "zero 0.2.0\n");
 
 const version = json(["--version", "--json"]).body;
 assert.equal(version.schemaVersion, 1);
-assert.equal(version.version, "0.1.4");
+assert.equal(version.version, "0.2.0");
 assert.equal(version.backend, "zero-c");
 assert.equal(typeof version.host, "string");
 assert(version.targets.includes("darwin-arm64"));
@@ -538,20 +545,42 @@ for (const [command, expected] of [
 ] as Array<[string[], RegExp]>) {
   assert.match(zero(command).stdout, expected);
 }
+
+for (const [code, goodExample, stalePattern] of [
+  ["STD003", "var bytes: [4]u8 = [0, 0, 0, 0]", /\bmut bytes\b|std\.mem\.fill bytes/],
+  ["TYP026", "alias Bytes = Span<u8>", /\btype [A-Z][A-Za-z0-9_]* =/],
+  ["PUB001", "pub const answer: i32 = 42", /pub const answer (42|i32 42)/],
+  ["IFC002", "fn describe(self: ref<Self>) -> String", /type Person\n|fn describe (String|i32)|ret self/],
+  ["IFC003", "fn describe(self: ref<Self>) -> String", /fn describe (String|i32)|ret self/],
+  ["IFC004", "fn describe(self: ref<Self>) -> String", /fn describe (String|i32)|ret self/],
+  ["IFC005", "fn describe(self: ref<Self>) -> String", /fn describe (String|i32)|ret self/],
+  ["STC001", "type Buf<static N: usize> {", /type Buf<static N: usize>\n|len usize/],
+  ["RCV002", "var vec: FixedVec<u8, 4>", /\bmut vec\b|vec\.push 1|use `mut`/],
+] as Array<[string, string, RegExp]>) {
+  const explanation = json(["explain", "--json", code]).body;
+  assert.equal(explanation.code, code);
+  assert(explanation.examples.good.includes(goodExample), `${code} explain good example should use canonical source`);
+  assert.doesNotMatch(
+    `${explanation.repair.summary}\n${explanation.examples.bad}\n${explanation.examples.good}`,
+    stalePattern,
+    `${code} explain examples should use canonical source syntax`,
+  );
+}
+
 const graphHelp = zero(["graph", "--help"]).stdout;
 assert.match(graphHelp, /zero graph \[dump\|import\|validate\|roundtrip\] \[--json\] --out <program-graph-artifact> <input>/);
-assert.match(graphHelp, /zero graph view \[--json\] --out <file\.zero> <program-graph-artifact>/);
+assert.match(graphHelp, /zero graph view \[--json\] \[--out <file\.0>\] <program-graph-or-source>/);
 assert.match(graphHelp, /zero graph size \[--json\] \[--target <target>\] --out <artifact> <input>/);
-assert.match(graphHelp, /zero graph patch \[--json\] --out <program-graph-artifact> <input> \(<patch-file>\|--op <operation>\)/);
+assert.match(graphHelp, /zero graph patch \[--json\] \[--out <program-graph-artifact>\] <program-graph-or-source> \(<patch-file>\|--op <operation>\)/);
 assert.match(graphHelp, /zero graph build \[--json\] \[--emit exe\|obj\].*<program-graph-or-package>/);
 assert.match(graphHelp, /zero graph run \[--target <host-target>\].*<program-graph-or-package> \[-- args\.\.\.\]/);
 assert.match(graphHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <program-graph-or-package>/);
 assert.doesNotMatch(graphHelp, /zero graph check[^\n]*--out/);
 const rootHelp = zero(["--help"]).stdout;
 assert.match(rootHelp, /zero graph \[dump\|import\|validate\|roundtrip\] \[--json\] --out <program-graph-artifact> <input>/);
-assert.match(rootHelp, /zero graph view \[--json\] --out <file\.zero> <program-graph-artifact>/);
+assert.match(rootHelp, /zero graph view \[--json\] \[--out <file\.0>\] <program-graph-or-source>/);
 assert.match(rootHelp, /zero graph size \[--json\] \[--target <target>\] --out <artifact> <program-graph-or-package>/);
-assert.match(rootHelp, /zero graph patch \[--json\] --out <program-graph-artifact> <program-graph-or-package> \(<patch-file>\|--op <operation>\)/);
+assert.match(rootHelp, /zero graph patch \[--json\] \[--out <program-graph-artifact>\] <program-graph-or-source> \(<patch-file>\|--op <operation>\)/);
 assert.match(rootHelp, /zero graph build \[--json\] \[--emit exe\|obj\].*<program-graph-or-package>/);
 assert.match(rootHelp, /zero graph run \[--target <host-target>\].*<program-graph-or-package> \[-- args\.\.\.\]/);
 assert.match(rootHelp, /zero graph test \[--json\] \[--filter <name>\] \[--target <target>\] <program-graph-or-package>/);
@@ -604,16 +633,15 @@ const graphImportJsonPath = join(outDir, "hello.imported-json.program-graph");
 const graphInspectOutPath = join(outDir, "hello.inspect.json");
 const graphCanonicalPath = join(outDir, "hello.canonical.program-graph");
 const graphSourceTextOutPath = join(outDir, "hello.source-output.0");
-const graphSourceRowOutPath = join(outDir, "hello.source-output.row");
 const graphValidateSourceTextOutPath = join(outDir, "hello.validate-source-output.0");
 const checkedInGraphSourcePath = "conformance/program-graph/hello.0";
 const checkedInGraphPackageDir = "conformance/program-graph";
 const checkedInGraphBuildPath = join(outDir, "checked-in-graph-build");
 const checkedInGraphRunPath = join(outDir, "checked-in-graph-run");
 const checkedInGraphShipPath = join(outDir, "checked-in-graph-ship");
-const graphViewPath = join(outDir, "hello.program-graph.zero");
-const graphViewWrongOutPath = join(outDir, "hello.program-graph.0");
-const graphCheckViewPath = join(outDir, "hello.checked.program-graph.zero");
+const graphViewPath = join(outDir, "hello.graph-view.0");
+const graphViewWrongOutPath = join(outDir, "hello.program-graph.txt");
+const graphCheckViewPath = join(outDir, "hello.checked.graph-view.0");
 const graphSizePath = join(outDir, "hello.program-graph.size.json");
 const graphBuildPath = join(outDir, "hello.program-graph-build");
 const graphObjPath = join(outDir, "hello.program-graph.o");
@@ -685,6 +713,7 @@ const graphPayloadDumpPath = join(outDir, "payload-match.program-graph");
 const graphPatchInvalidMatchReplacePath = join(outDir, "payload-match.invalid-replace.program-graph.patch");
 const graphPatchInvalidMatchInsertPath = join(outDir, "payload-match.invalid-insert.program-graph.patch");
 const graphPackageDumpPath = join(outDir, "systems-package.program-graph");
+const graphPackageViewPath = join(outDir, "systems-package.graph-view.0");
 const graphPackagePathMismatchPatchPath = join(outDir, "systems-package.path-mismatch.program-graph.patch");
 const graphPackagePathMismatchPath = join(outDir, "systems-package.path-mismatch.program-graph");
 const graphPatchInvalidImportAliasPath = join(outDir, "systems-package.invalid-import-alias.program-graph.patch");
@@ -704,7 +733,6 @@ rmSync(graphImportPath, { force: true });
 rmSync(graphImportJsonPath, { force: true });
 rmSync(graphCanonicalPath, { force: true });
 rmSync(graphSourceTextOutPath, { force: true });
-rmSync(graphSourceRowOutPath, { force: true });
 rmSync(graphValidateSourceTextOutPath, { force: true });
 rmSync(checkedInGraphBuildPath, { force: true });
 rmSync(checkedInGraphRunPath, { force: true });
@@ -789,7 +817,7 @@ rmSync(graphPatchMismatchPath, { force: true });
 rmSync(graphPatchBadHashPath, { force: true });
 rmSync(graphSparseOrderPath, { force: true });
 rmSync(graphSparseArgPath, { force: true });
-writeFileSync(graphStableSiblingSourcePath, `fn helper u32\n  ret 1\n\n${readFileSync("examples/hello.0", "utf8")}`);
+writeFileSync(graphStableSiblingSourcePath, `fn helper() -> u32 {\n    return 1\n}\n\n${readFileSync("examples/hello.0", "utf8")}`);
 const graphStableSiblingJson = json(["graph", "dump", "--json", graphStableSiblingSourcePath]).body;
 assert.equal(graphStableSiblingJson.nodes.find((node) => node.kind === "Function" && node.name === "main")?.id, graphMainFunctionNode.id);
 assert.equal(graphStableSiblingJson.nodes.find((node) => node.kind === "Literal" && node.type === "String" && node.value === "hello from zero\n")?.id, graphHelloLiteralNode.id);
@@ -819,13 +847,13 @@ assert.equal(zero(["graph", "validate", graphImportJsonPath]).stdout, "program g
 const graphInspectJson = json(["graph", "inspect", "--json", "examples/hello.0"]).body;
 assert.equal(graphInspectJson.schemaVersion, 1);
 assert.equal(graphInspectJson.programGraph.graphHash, graphDumpJson.graphHash);
-assert.equal(graphInspectJson.programGraph.canonicalSource, false);
+assert.equal(graphInspectJson.programGraph.canonicalSource, true);
 assert.equal(graphInspectJson.programGraph.validation.ok, true);
 assert.equal(graphInspectJson.callResolution.schemaVersion, 1);
 const graphInspectOutJson = json(["graph", "inspect", "--json", "--out", graphInspectOutPath, "examples/hello.0"], { allowFailure: true });
 assert.notEqual(graphInspectOutJson.code, 0);
 assert.equal(graphInspectOutJson.body.diagnostics[0].message, "graph inspect does not support --out");
-assert.equal(graphInspectOutJson.body.diagnostics[0].expected, "zero graph inspect [--json] <file.0|file.row|project|zero.json>");
+assert.equal(graphInspectOutJson.body.diagnostics[0].expected, "zero graph inspect [--json] <file.0|project|zero.json>");
 const graphBareOutJson = json(["graph", "--json", "--out", graphBareOutPath, "examples/hello.0"], { allowFailure: true });
 assert.notEqual(graphBareOutJson.code, 0);
 assert.equal(graphBareOutJson.body.diagnostics[0].message, "graph requires an output-capable subcommand for --out");
@@ -842,13 +870,8 @@ const graphSourceTextOutJson = json(["graph", "dump", "--json", "--out", graphSo
 assert.notEqual(graphSourceTextOutJson.code, 0);
 assert.equal(graphSourceTextOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
 assert.equal(graphSourceTextOutJson.body.diagnostics[0].expected, "zero graph dump --out <program-graph-artifact> <input>");
-assert.equal(graphSourceTextOutJson.body.diagnostics[0].help, ".0 and .row files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
+assert.equal(graphSourceTextOutJson.body.diagnostics[0].help, ".0 files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
 assert.equal(existsSync(graphSourceTextOutPath), false);
-const graphSourceRowOutJson = json(["graph", "import", "--json", "--out", graphSourceRowOutPath, "examples/hello.0"], { allowFailure: true });
-assert.notEqual(graphSourceRowOutJson.code, 0);
-assert.equal(graphSourceRowOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
-assert.equal(graphSourceRowOutJson.body.diagnostics[0].expected, "zero graph dump --out <program-graph-artifact> <input>");
-assert.equal(existsSync(graphSourceRowOutPath), false);
 const graphValidateSourceTextOutJson = json(["graph", "validate", "--json", "--out", graphValidateSourceTextOutPath, graphDumpPath], { allowFailure: true });
 assert.notEqual(graphValidateSourceTextOutJson.code, 0);
 assert.equal(graphValidateSourceTextOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
@@ -859,9 +882,10 @@ assert.equal(checkedInGraphSource, readFileSync("examples/hello.0", "utf8"));
 const checkedInGraphValidateJson = json(["graph", "validate", "--json", checkedInGraphSourcePath], { allowFailure: true });
 assert.notEqual(checkedInGraphValidateJson.code, 0);
 assert.equal(checkedInGraphValidateJson.body.diagnostics[0].message, "expected zero-graph v1 header");
-const checkedInGraphViewJson = json(["graph", "view", "--json", checkedInGraphSourcePath], { allowFailure: true });
-assert.notEqual(checkedInGraphViewJson.code, 0);
-assert.equal(checkedInGraphViewJson.body.diagnostics[0].message, "expected zero-graph v1 header");
+const checkedInGraphViewJson = json(["graph", "view", "--json", checkedInGraphSourcePath]).body;
+assert.equal(checkedInGraphViewJson.ok, true);
+assert.equal(checkedInGraphViewJson.canonicalSource, true);
+assert.match(checkedInGraphViewJson.view, /pub fn main\(world: World\) -> Void raises/);
 const checkedInGraphPackageCheckJson = json(["check", "--json", checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphPackageCheckJson.ok, true);
 assert.equal(checkedInGraphPackageCheckJson.sourceFile, checkedInGraphSourcePath);
@@ -889,11 +913,8 @@ assert.equal(checkedInGraphPackageShipJson.graph, undefined);
 assert.equal(checkedInGraphPackageShipJson.artifactPath, checkedInGraphShipPath);
 const graphView = zero(["graph", "view", graphDumpPath]).stdout;
 assert.equal(zero(["graph", "view", graphDumpPath]).stdout, graphView);
-assert.match(graphView, /^# Generated \.zero preview by zero graph view\. Do not edit\.\n# Canonical source is \.0 text, not this projection\.\n/);
-assert.match(graphView, /# Source graph: graph:[0-9a-f]{16}/);
-assert.match(graphView, /# graph origin source-text/);
-assert.match(graphView, /pub fn main Void world World !/);
-assert.match(graphView, /check world\.out\.write "hello from zero\\n"/);
+assert.match(graphView, /^pub fn main\(world: World\) -> Void raises \{\n/);
+assert.match(graphView, /check world\.out\.write\("hello from zero\\n"\)/);
 const graphViewJson = json(["graph", "view", "--json", graphDumpPath]).body;
 assert.equal(graphViewJson.ok, true);
 assert.equal(graphViewJson.canonicalSource, false);
@@ -909,8 +930,8 @@ assert.equal(graphViewOutJson.view, null);
 assert.equal(readFileSync(graphViewPath, "utf8"), graphView);
 const graphViewWrongOutJson = json(["graph", "view", "--json", "--out", graphViewWrongOutPath, graphDumpPath], { allowFailure: true });
 assert.notEqual(graphViewWrongOutJson.code, 0);
-assert.equal(graphViewWrongOutJson.body.diagnostics[0].message, "graph view output must use .zero extension");
-assert.equal(graphViewWrongOutJson.body.diagnostics[0].expected, "zero graph view --out <file.zero> <program-graph-artifact>");
+assert.equal(graphViewWrongOutJson.body.diagnostics[0].message, "graph view output must use .0 extension");
+assert.equal(graphViewWrongOutJson.body.diagnostics[0].expected, "zero graph view --out <file.0> <program-graph-or-source>");
 assert.equal(existsSync(graphViewWrongOutPath), false);
 assert.equal(zero(["graph", "check", graphDumpPath]).stdout, "program graph check ok\n");
 const graphCheckJson = json(["graph", "check", "--json", graphDumpPath]).body;
@@ -926,13 +947,35 @@ assert.equal(graphCheckJson.check.sourcePath, null);
 assert.equal(graphCheckJson.targetReadiness.ok, true);
 assert.equal(graphCheckJson.targetReadiness.languageOk, true);
 assert.equal(graphCheckJson.targetReadiness.buildable, true);
+assert.equal(graphCheckJson.safetyFacts.schemaVersion, 1);
+assert.equal(graphCheckJson.safetyFacts.bounds.runtimeTraps, true);
+assert.equal(graphCheckJson.safetyFacts.bounds.optimizerElision, false);
+assert.equal(graphCheckJson.safetyFacts.overflow.runtimeArithmetic, "unchecked-machine-wrap");
+assert.equal(graphCheckJson.safetyFacts.overflow.unchecked, true);
+assert.equal(graphCheckJson.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 assert.deepEqual(graphCheckJson.diagnostics, []);
 assert.equal(graphCheckJson.saved, null);
 assert.equal(graphCheckJson.view, null);
+const graphDirectImportCheckJson = json(["graph", "check", "--json", "examples/direct-package-arrays/src/main.0"]).body;
+assert.equal(graphDirectImportCheckJson.ok, true);
+assert.equal(graphDirectImportCheckJson.canonicalSource, true);
+assert.equal(graphDirectImportCheckJson.check.phase, "typecheck");
+assert.equal(graphDirectImportCheckJson.targetReadiness.ok, true);
+assert.equal(graphDirectImportCheckJson.safetyFacts.initialization.locals, "initializer-required");
+assert.deepEqual(graphDirectImportCheckJson.diagnostics, []);
+const graphDirectImportView = zero(["graph", "view", "examples/direct-package-arrays/src/main.0"]).stdout;
+assert.match(graphDirectImportView, /fn package_sum\(\) -> i32/);
+assert.match(graphDirectImportView, /export c fn main\(\) -> i32/);
+const graphDirectStdCheckJson = json(["graph", "check", "--json", "examples/std-str.0"]).body;
+assert.equal(graphDirectStdCheckJson.ok, true);
+assert.equal(graphDirectStdCheckJson.canonicalSource, true);
+assert.equal(graphDirectStdCheckJson.check.phase, "typecheck");
+assert.equal(graphDirectStdCheckJson.targetReadiness.ok, true);
+assert.deepEqual(graphDirectStdCheckJson.diagnostics, []);
 const graphCheckOutJson = json(["graph", "check", "--json", "--out", graphCheckViewPath, graphDumpPath], { allowFailure: true });
 assert.notEqual(graphCheckOutJson.code, 0);
-assert.equal(graphCheckOutJson.body.diagnostics[0].message, "graph check does not write generated previews");
-assert.equal(graphCheckOutJson.body.diagnostics[0].expected, "zero graph view --out <file.zero> <program-graph-artifact>");
+assert.equal(graphCheckOutJson.body.diagnostics[0].message, "graph check does not support --out");
+assert.equal(graphCheckOutJson.body.diagnostics[0].expected, "zero graph view --out <file.0> <program-graph-or-source>");
 const graphSizeJson = json(["graph", "size", "--json", "--target", "linux-musl-x64", graphDumpPath]).body;
 assert.equal(graphSizeJson.schemaVersion, 1);
 assert.equal(graphSizeJson.sourceFile, graphDumpPath);
@@ -1108,8 +1151,8 @@ assert.equal(sourcePackageCheckJson.graph, undefined);
 mkdirSync(join(directGraphTargetGatePackageDir, "src"), { recursive: true });
 mkdirSync(join(directGraphTargetGatePackageDir, "artifacts"), { recursive: true });
 mkdirSync(join(directGraphTargetGateDepDir, "src"), { recursive: true });
-writeFileSync(join(directGraphTargetGatePackageDir, "src", "main.0"), "pub fn main Void world World !\n  check world.out.write \"target gate\\n\"\n");
-writeFileSync(join(directGraphTargetGateDepDir, "src", "main.0"), "pub fn main Void world World !\n  check world.out.write \"webbits\\n\"\n");
+writeFileSync(join(directGraphTargetGatePackageDir, "src", "main.0"), "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"target gate\\n\")\n}\n");
+writeFileSync(join(directGraphTargetGateDepDir, "src", "main.0"), "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"webbits\\n\")\n}\n");
 writeFileSync(join(directGraphTargetGateDepDir, "zero.json"), `${JSON.stringify({
   package: { name: "target-webbits", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
@@ -1132,7 +1175,7 @@ assert.equal(directGraphTargetGateJson.body.diagnostics[0].code, "PKG004");
 assert.equal(directGraphTargetGateJson.body.diagnostics[0].message, "package dependency is not compatible with target");
 mkdirSync(join(directGraphHostLeakPackageDir, "src"), { recursive: true });
 mkdirSync(join(directGraphHostLeakPackageDir, "artifacts"), { recursive: true });
-writeFileSync(join(directGraphHostLeakPackageDir, "src", "main.0"), "pub fn main Void world World !\n  check world.out.write \"host leak\\n\"\n");
+writeFileSync(join(directGraphHostLeakPackageDir, "src", "main.0"), "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"host leak\\n\")\n}\n");
 writeFileSync(join(directGraphHostLeakPackageDir, "zero.json"), `${JSON.stringify({
   package: { name: "direct-graph-host-leak", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0", graph: "artifacts/app.program-graph" } },
@@ -1153,10 +1196,10 @@ const directGraphHostLeakJson = json(["build", "--json", "--target", "linux-musl
 assert.equal(directGraphHostLeakJson.code, 1);
 assert.equal(directGraphHostLeakJson.body.diagnostics[0].code, "CIMP003");
 assert.equal(directGraphHostLeakJson.body.diagnostics[0].message, "foreign target C dependency would use host discovery");
-const graphManifestMissingJson = json(["graph", "check", "--json", "conformance/packages/test-app"], { allowFailure: true });
-assert.equal(graphManifestMissingJson.code, 1);
-assert.equal(graphManifestMissingJson.body.diagnostics[0].message, "zero.json is missing targets.cli.graph");
-assert.equal(graphManifestMissingJson.body.diagnostics[0].expected, "targets.cli.graph pointing at a derived ProgramGraph artifact");
+const graphPackageSourceCheckJson = json(["graph", "check", "--json", "conformance/packages/test-app"]).body;
+assert.equal(graphPackageSourceCheckJson.ok, true);
+assert.equal(graphPackageSourceCheckJson.moduleIdentity, "package:test-app@0.1.0");
+assert.equal(graphPackageSourceCheckJson.check.lowering, "direct-program-graph");
 writeFileSync(graphSizeNoisePatchPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,
@@ -1197,8 +1240,264 @@ assert.equal(graphPatchJson.operations[0].value, "hello patched\n");
 assert.equal(graphPatchJson.diagnostic, null);
 assert.equal(graphPatchJson.saved.path, graphPatchedPath);
 assert.equal(zero(["graph", "validate", graphPatchedPath]).stdout, "program graph ok\n");
-assert.match(zero(["graph", "view", graphPatchedPath]).stdout, /check world\.out\.write "hello patched\\n"/);
+assert.match(zero(["graph", "view", graphPatchedPath]).stdout, /check world\.out\.write\("hello patched\\n"\)/);
 assert.equal(zero(["graph", "check", graphPatchedPath]).stdout, "program graph check ok\n");
+const graphSourcePatchPath = join(outDir, "hello.source-backed.0");
+writeFileSync(graphSourcePatchPath, graphView);
+const graphSourcePatchDumpJson = json(["graph", "dump", "--json", graphSourcePatchPath]).body;
+assert.equal(graphSourcePatchDumpJson.canonicalSource, true);
+const graphSourceLiteralNode = graphSourcePatchDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "String" && node.value === "hello from zero\n");
+assert(graphSourceLiteralNode);
+const graphSourcePatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphSourcePatchPath,
+  "--expect-graph-hash",
+  graphSourcePatchDumpJson.graphHash,
+  "--op",
+  `set node="${graphSourceLiteralNode.id}" field="value" expect="hello from zero\\n" value="hello source-backed\\n"`,
+]).body;
+assert.equal(graphSourcePatchJson.ok, true);
+assert.equal(graphSourcePatchJson.canonicalSource, true);
+assert.equal(graphSourcePatchJson.saved.path, graphSourcePatchPath);
+assert.match(readFileSync(graphSourcePatchPath, "utf8"), /hello source-backed\\n/);
+assert.equal(zero(["check", graphSourcePatchPath]).stdout, "ok\n");
+assert.equal(zero(["graph", "check", graphSourcePatchPath]).stdout, "program graph check ok\n");
+const graphSourcePackageDir = join(outDir, "graph-source-package");
+const graphSourcePackageMain = join(graphSourcePackageDir, "src", "main.0");
+const graphSourcePackageHelper = join(graphSourcePackageDir, "src", "helper.0");
+rmSync(graphSourcePackageDir, { recursive: true, force: true });
+mkdirSync(join(graphSourcePackageDir, "src"), { recursive: true });
+writeFileSync(
+  join(graphSourcePackageDir, "zero.json"),
+  JSON.stringify(
+    {
+      package: { name: "graph-source-package", version: "0.1.0" },
+      targets: { cli: { kind: "exe", main: "src/main.0" } },
+    },
+    null,
+    2,
+  ) + "\n",
+);
+writeFileSync(
+  graphSourcePackageHelper,
+  "pub fn value() -> i32 {\n" +
+    "    return 41\n" +
+    "}\n",
+);
+writeFileSync(
+  graphSourcePackageMain,
+  "use helper\n\n" +
+    "pub fn main() -> i32 {\n" +
+    "    return value() + 1\n" +
+    "}\n",
+);
+const graphSourcePackageDumpJson = json(["graph", "dump", "--json", graphSourcePackageMain]).body;
+const graphSourcePackageLiteralNode = graphSourcePackageDumpJson.nodes.find(
+  (node) => node.kind === "Literal" && node.path === graphSourcePackageMain && node.value === "1",
+);
+assert(graphSourcePackageLiteralNode);
+const graphSourcePackagePatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphSourcePackageMain,
+  "--expect-graph-hash",
+  graphSourcePackageDumpJson.graphHash,
+  "--op",
+  `set node="${graphSourcePackageLiteralNode.id}" field="value" expect="1" value="2"`,
+]).body;
+assert.equal(graphSourcePackagePatchJson.ok, true);
+assert.equal(graphSourcePackagePatchJson.saved.path, graphSourcePackageMain);
+const graphSourcePackageMainText = readFileSync(graphSourcePackageMain, "utf8");
+assert.match(graphSourcePackageMainText, /^use helper\n\n/);
+assert.match(graphSourcePackageMainText, /return value\(\) \+ 2/);
+assert.doesNotMatch(graphSourcePackageMainText, /pub fn value/);
+assert.equal(readFileSync(graphSourcePackageHelper, "utf8"), "pub fn value() -> i32 {\n    return 41\n}\n");
+assert.equal(zero(["check", graphSourcePackageMain]).stdout, "ok\n");
+assert.equal(zero(["graph", "check", graphSourcePackageMain]).stdout, "program graph check ok\n");
+const graphUserDerefSourcePath = join(outDir, "deref-member.0");
+const graphUserDerefViewPath = join(outDir, "deref-member.view.0");
+const graphPrefixDerefSourcePath = join(outDir, "prefix-deref-member.0");
+const graphNestedCastSourcePath = join(outDir, "nested-cast.0");
+const graphNestedCastViewPath = join(outDir, "nested-cast.view.0");
+const graphPublicExportSourcePath = join(outDir, "public-export-c.0");
+const graphPublicExportViewPath = join(outDir, "public-export-c.view.0");
+const graphPublicInterfaceSourcePath = join(outDir, "public-interface-method.0");
+const graphPublicInterfaceViewPath = join(outDir, "public-interface-method.view.0");
+const graphPublicSumsSourcePath = join(outDir, "public-sums.0");
+const graphExternFieldsSourcePath = join(outDir, "extern-fields.0");
+const graphCommentsSourcePath = join(outDir, "comments.0");
+const graphDerefMemberSource = [
+  "type Point {",
+  "    x: i32,",
+  "}",
+  "",
+  "type Wrapper {",
+  "    x: Point,",
+  "}",
+  "",
+  "fn deref(value: Wrapper) -> Point {",
+  "    return value.x",
+  "}",
+  "",
+  "pub fn main() -> i32 {",
+  "    let wrapped: Wrapper = Wrapper { x: Point { x: 7 } }",
+  "    return deref(wrapped).x",
+  "}",
+  "",
+].join("\n");
+writeFileSync(graphUserDerefSourcePath, graphDerefMemberSource);
+assert.equal(zero(["check", graphUserDerefSourcePath]).stdout, "ok\n");
+const graphUserDerefView = zero(["graph", "view", graphUserDerefSourcePath]).stdout;
+assert.match(graphUserDerefView, /return deref\(wrapped\)\.x/);
+assert.doesNotMatch(graphUserDerefView, /return \*wrapped\.x/);
+assert.equal(zero(["graph", "view", "--out", graphUserDerefViewPath, graphUserDerefSourcePath]).stdout, "");
+assert.equal(zero(["check", graphUserDerefViewPath]).stdout, "ok\n");
+writeFileSync(graphPrefixDerefSourcePath, graphDerefMemberSource.replace("return deref(wrapped).x", "return (*wrapped).x"));
+assert.equal(zero(["check", graphPrefixDerefSourcePath]).stdout, "ok\n");
+const graphPrefixDerefView = zero(["graph", "view", graphPrefixDerefSourcePath]).stdout;
+assert.match(graphPrefixDerefView, /return \(\*wrapped\)\.x/);
+assert.equal(zero(["check", graphPrefixDerefSourcePath]).stdout, "ok\n");
+writeFileSync(graphNestedCastSourcePath, [
+  "pub fn main() -> u32 {",
+  "    let x: i32 = 1",
+  "    return (x as u16) as u32",
+  "}",
+  "",
+].join("\n"));
+assert.equal(zero(["check", graphNestedCastSourcePath]).stdout, "ok\n");
+const graphNestedCastView = zero(["graph", "view", graphNestedCastSourcePath]).stdout;
+assert.match(graphNestedCastView, /return \(x as u16\) as u32/);
+assert.equal(zero(["graph", "view", "--out", graphNestedCastViewPath, graphNestedCastSourcePath]).stdout, "");
+assert.equal(zero(["check", graphNestedCastViewPath]).stdout, "ok\n");
+assert.match(json(["graph", "roundtrip", "--json", graphNestedCastSourcePath]).body.view, /return \(x as u16\) as u32/);
+writeFileSync(graphPublicExportSourcePath, [
+  "pub export c fn main() -> i32 {",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+assert.equal(zero(["check", graphPublicExportSourcePath]).stdout, "ok\n");
+assert.equal(zero(["graph", "view", "--out", graphPublicExportViewPath, graphPublicExportSourcePath]).stdout, "");
+assert.equal(zero(["check", graphPublicExportViewPath]).stdout, "ok\n");
+assert.match(json(["graph", "roundtrip", "--json", graphPublicExportSourcePath]).body.view, /pub export c fn main\(\) -> i32/);
+writeFileSync(graphPublicInterfaceSourcePath, [
+  "interface Reader {",
+  "    pub fn read() -> i32",
+  "}",
+  "",
+  "pub fn main() -> i32 {",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+assert.equal(zero(["check", graphPublicInterfaceSourcePath]).stdout, "ok\n");
+assert.equal(zero(["graph", "view", "--out", graphPublicInterfaceViewPath, graphPublicInterfaceSourcePath]).stdout, "");
+assert.equal(zero(["check", graphPublicInterfaceViewPath]).stdout, "ok\n");
+assert.match(json(["graph", "roundtrip", "--json", graphPublicInterfaceSourcePath]).body.view, /pub fn read\(\) -> i32/);
+writeFileSync(graphPublicSumsSourcePath, [
+  "pub enum Mode: u8 {",
+  "    ready,",
+  "}",
+  "",
+  "pub choice Result {",
+  "    ok: i32,",
+  "    err: String,",
+  "}",
+  "",
+  "pub fn main() -> i32 {",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+const graphPublicSumsDumpJson = json(["graph", "dump", "--json", graphPublicSumsSourcePath]).body;
+const graphPublicEnumNode = graphPublicSumsDumpJson.nodes.find((node) => node.kind === "Enum" && node.name === "Mode");
+const graphPublicChoiceNode = graphPublicSumsDumpJson.nodes.find((node) => node.kind === "Choice" && node.name === "Result");
+const graphPublicLiteralNode = graphPublicSumsDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "i32" && node.value === "1");
+assert.equal(graphPublicEnumNode?.public, true);
+assert.equal(graphPublicChoiceNode?.public, true);
+assert(graphPublicLiteralNode);
+const graphPublicSumsPatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphPublicSumsSourcePath,
+  "--expect-graph-hash",
+  graphPublicSumsDumpJson.graphHash,
+  "--op",
+  `set node="${graphPublicLiteralNode.id}" field="value" expect="1" value="2"`,
+]).body;
+assert.equal(graphPublicSumsPatchJson.ok, true);
+assert.equal(graphPublicSumsPatchJson.canonicalSource, true);
+assert.equal(graphPublicSumsPatchJson.saved.path, graphPublicSumsSourcePath);
+const graphPublicSumsText = readFileSync(graphPublicSumsSourcePath, "utf8");
+assert.match(graphPublicSumsText, /^pub enum Mode/m);
+assert.match(graphPublicSumsText, /^pub choice Result/m);
+assert.match(graphPublicSumsText, /return 2/);
+assert.equal(zero(["check", graphPublicSumsSourcePath]).stdout, "ok\n");
+writeFileSync(graphExternFieldsSourcePath, [
+  "extern type CPoint {",
+  "    x: i32,",
+  "    y: i32,",
+  "}",
+  "",
+  "pub fn main() -> i32 {",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+const graphExternFieldsDumpJson = json(["graph", "dump", "--json", graphExternFieldsSourcePath]).body;
+const graphExternFieldsLiteralNode = graphExternFieldsDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "i32" && node.value === "1");
+assert(graphExternFieldsLiteralNode);
+const graphExternFieldsPatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphExternFieldsSourcePath,
+  "--expect-graph-hash",
+  graphExternFieldsDumpJson.graphHash,
+  "--op",
+  `set node="${graphExternFieldsLiteralNode.id}" field="value" expect="1" value="2"`,
+]).body;
+assert.equal(graphExternFieldsPatchJson.ok, true);
+assert.equal(graphExternFieldsPatchJson.canonicalSource, true);
+assert.equal(graphExternFieldsPatchJson.saved.path, graphExternFieldsSourcePath);
+const graphExternFieldsText = readFileSync(graphExternFieldsSourcePath, "utf8");
+assert.match(graphExternFieldsText, /^extern type CPoint \{/m);
+assert.match(graphExternFieldsText, /^\s+x: i32,/m);
+assert.match(graphExternFieldsText, /^\s+y: i32,/m);
+assert.match(graphExternFieldsText, /return 2/);
+assert.equal(zero(["check", graphExternFieldsSourcePath]).stdout, "ok\n");
+writeFileSync(graphCommentsSourcePath, [
+  "// module comment",
+  "",
+  "pub fn main() -> i32 {",
+  "    // keep this comment",
+  "    return 1",
+  "}",
+  "",
+].join("\n"));
+const graphCommentsOriginal = readFileSync(graphCommentsSourcePath, "utf8");
+const graphCommentsDumpJson = json(["graph", "dump", "--json", graphCommentsSourcePath]).body;
+const graphCommentsLiteralNode = graphCommentsDumpJson.nodes.find((node) => node.kind === "Literal" && node.type === "i32" && node.value === "1");
+assert(graphCommentsLiteralNode);
+const graphCommentsPatchJson = json([
+  "graph",
+  "patch",
+  "--json",
+  graphCommentsSourcePath,
+  "--expect-graph-hash",
+  graphCommentsDumpJson.graphHash,
+  "--op",
+  `set node="${graphCommentsLiteralNode.id}" field="value" expect="1" value="2"`,
+], { allowFailure: true });
+assert.notEqual(graphCommentsPatchJson.code, 0);
+assert.equal(graphCommentsPatchJson.body.ok, false);
+assert.equal(graphCommentsPatchJson.body.diagnostics[0].code, "BLD002");
+assert.equal(graphCommentsPatchJson.body.diagnostics[0].message, "source-backed graph patch cannot preserve comments");
+assert.equal(readFileSync(graphCommentsSourcePath, "utf8"), graphCommentsOriginal);
 const graphInlinePatchJson = json([
   "graph",
   "patch",
@@ -1218,7 +1517,7 @@ assert.equal(graphInlinePatchJson.operationCount, 1);
 assert.equal(graphInlinePatchJson.operations[0].node, graphHelloLiteralNode.id);
 assert.equal(graphInlinePatchJson.operations[0].value, "hello inline\n");
 assert.equal(graphInlinePatchJson.saved.path, graphInlinePatchedPath);
-assert.match(zero(["graph", "view", graphInlinePatchedPath]).stdout, /check world\.out\.write "hello inline\\n"/);
+assert.match(zero(["graph", "view", graphInlinePatchedPath]).stdout, /check world\.out\.write\("hello inline\\n"\)/);
 writeFileSync(graphPatchInsertPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,
@@ -1242,7 +1541,7 @@ assert.equal(graphInsertPatchJson.operations[5].type, "String");
 assert.equal(graphInsertPatchJson.operations[5].value, "second line\n");
 assert.equal(graphInsertPatchJson.saved.path, graphInsertedPath);
 const graphInsertedView = zero(["graph", "view", graphInsertedPath]).stdout;
-assert.match(graphInsertedView, /check world\.out\.write "hello from zero\\n"\n  check world\.out\.write "second line\\n"/);
+assert.match(graphInsertedView, /check world\.out\.write\("hello from zero\\n"\)\n    check world\.out\.write\("second line\\n"\)/);
 assert.equal(zero(["graph", "check", graphInsertedPath]).stdout, "program graph check ok\n");
 assert.equal(zero(["graph", "roundtrip", graphInsertedPath]).stdout, "program graph roundtrip ok\n");
 const graphInsertedText = readFileSync(graphInsertedPath, "utf8");
@@ -1279,7 +1578,7 @@ assert.equal(graphDeleteThenInsertPatchJson.ok, true);
 assert.equal(graphDeleteThenInsertPatchJson.operations[0].op, "delete");
 assert.equal(graphDeleteThenInsertPatchJson.operations[1].op, "insert");
 const graphDeleteThenInsertedView = zero(["graph", "view", graphDeleteThenInsertedPath]).stdout;
-assert.match(graphDeleteThenInsertedView, /check world\.out\.write "replacement line\\n"\n  check world\.out\.write "second line\\n"/);
+assert.match(graphDeleteThenInsertedView, /check world\.out\.write\("replacement line\\n"\)\n    check world\.out\.write\("second line\\n"\)/);
 assert.equal(zero(["graph", "check", graphDeleteThenInsertedPath]).stdout, "program graph check ok\n");
 assert.equal(zero(["graph", "roundtrip", graphDeleteThenInsertedPath]).stdout, "program graph roundtrip ok\n");
 writeFileSync(graphPatchDeleteNodeFactPath, [
@@ -1345,7 +1644,7 @@ assert.equal(graphReplacePatchJson.operations[0].op, "replace");
 assert.equal(graphReplacePatchJson.operations[0].actual, graphLiteralNode.nodeHash);
 assert.equal(graphReplacePatchJson.operations[0].value, "hello replaced structurally\n");
 assert.equal(graphReplacePatchJson.operations[0].public, true);
-assert.match(zero(["graph", "view", graphReplacedPath]).stdout, /check world\.out\.write "hello replaced structurally\\n"/);
+assert.match(zero(["graph", "view", graphReplacedPath]).stdout, /check world\.out\.write\("hello replaced structurally\\n"\)/);
 writeFileSync(graphPatchStaleReplacePath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,
@@ -1397,7 +1696,7 @@ const graphRenamePatchJson = json(["graph", "patch", "--json", "--out", graphRen
 assert.equal(graphRenamePatchJson.ok, true);
 assert.equal(graphRenamePatchJson.operations[0].op, "rename");
 assert.equal(graphRenamePatchJson.operations[0].actual, "main");
-assert.match(zero(["graph", "view", graphRenamedPath]).stdout, /pub fn start Void world World !/);
+assert.match(zero(["graph", "view", graphRenamedPath]).stdout, /pub fn start\(world: World\) -> Void raises/);
 const graphRenamedCheck = json(["graph", "check", "--json", graphRenamedPath], { allowFailure: true });
 assert.notEqual(graphRenamedCheck.code, 0);
 assert.equal(graphRenamedCheck.body.diagnostics[0].message, "missing main function");
@@ -1435,7 +1734,7 @@ assert.equal(graphUncheckedInline.body.view, null);
 assert.doesNotMatch(JSON.stringify(graphUncheckedInline.body), /<generated-graph-view>|zero-graph-check/);
 assert.equal(zero(["graph", "dump", "--out", graphBorrowDumpPath, "conformance/native/pass/borrow-field-independent-assignment.0"]).stdout, "");
 const graphBorrowDumpJson = json(["graph", "dump", "--json", "conformance/native/pass/borrow-field-independent-assignment.0"]).body;
-assert.equal(graphBorrowDumpJson.graphHash, "graph:ee4cf27e0511a4cb");
+assert.equal(graphBorrowDumpJson.graphHash, "graph:8b2c406ebc309cb7");
 const graphBorrowRightFieldAccess = graphBorrowDumpJson.nodes.filter((node) => node.kind === "FieldAccess" && node.name === "right").at(-1);
 assert(graphBorrowRightFieldAccess);
 writeFileSync(graphBorrowConflictPatchPath, [
@@ -1605,6 +1904,11 @@ assert.equal(graphInternalFunction.body.check.phase, "lower");
 assert.equal(graphInternalFunction.body.check.lowering, "direct-program-graph");
 assert.equal(graphInternalFunction.body.diagnostics[0].message, "program graph declaration uses a reserved compiler-internal symbol name");
 assert.equal(zero(["graph", "dump", "--out", graphPackageDumpPath, "examples/systems-package"]).stdout, "");
+assert.equal(zero(["graph", "view", "--out", graphPackageViewPath, "examples/systems-package"]).stdout, "");
+const graphPackageView = readFileSync(graphPackageViewPath, "utf8");
+assert.match(graphPackageView, /use std\.codec/);
+assert.doesNotMatch(graphPackageView, /^use (helpers|types)$/m);
+assert.equal(zero(["graph", "check", graphPackageViewPath]).stdout, "program graph check ok\n");
 const graphPackageDumpJson = json(["graph", "dump", "--json", "examples/systems-package"]).body;
 const graphStatusFunctionNode = graphPackageDumpJson.nodes.find((node) => node.kind === "Function" && node.name === "status");
 assert(graphStatusFunctionNode);
@@ -1693,7 +1997,7 @@ assert.equal(graphPatchMismatch.body.saved, null);
 assert.equal(zero(["graph", "roundtrip", "examples/hello.0"]).stdout, "program graph roundtrip ok\n");
 const graphRoundtripJson = json(["graph", "roundtrip", "--json", "examples/hello.0"]).body;
 assert.equal(graphRoundtripJson.ok, true);
-assert.equal(graphRoundtripJson.canonicalSource, false);
+assert.equal(graphRoundtripJson.canonicalSource, true);
 assert.equal(graphRoundtripJson.semanticStable, true);
 assert.equal(graphRoundtripJson.lowering, "direct-program-graph");
 assert.equal(graphRoundtripJson.moduleIdentity, "module:hello");
@@ -1764,13 +2068,13 @@ sparseOrderGraph = sparseOrderGraph.replace(/hash "graph:[0-9a-f]{16}"/, `hash "
 writeFileSync(graphSparseOrderPath, sparseOrderGraph);
 assert.equal(zero(["graph", "validate", graphSparseOrderPath]).stdout, "program graph ok\n");
 const sparseOrderView = execFileSync("bin/zero", ["graph", "view", graphSparseOrderPath], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 1000 });
-assert.match(sparseOrderView, /pub fn main Void world World !/);
+assert.match(sparseOrderView, /pub fn main\(world: World\) -> Void raises/);
 let sparseArgGraph = graphDump.replace(/edge (#[^ ]+) arg (#[^ ]+) order:0/, "edge $1 arg $2 order:1000000000000");
 sparseArgGraph = sparseArgGraph.replace(/hash "graph:[0-9a-f]{16}"/, `hash "${recomputeGraphHash(sparseArgGraph)}"`);
 writeFileSync(graphSparseArgPath, sparseArgGraph);
 assert.equal(zero(["graph", "validate", graphSparseArgPath]).stdout, "program graph ok\n");
 const sparseArgView = zero(["graph", "view", graphSparseArgPath]).stdout;
-assert.match(sparseArgView, /check world\.out\.write "hello from zero\\n"/);
+assert.match(sparseArgView, /check world\.out\.write\("hello from zero\\n"\)/);
 const graphWrongSchemaPath = join(outDir, "wrong-schema.program-graph");
 writeFileSync(graphWrongSchemaPath, "zero-graph v2\n");
 const graphWrongSchema = json(["graph", "validate", "--json", graphWrongSchemaPath], { allowFailure: true });
@@ -1860,6 +2164,7 @@ assert.match(JSON.parse(badSkillsGetFlag.stdout).error, /Unknown skills flag: --
 
 const lexerTokens = json(["tokens", "--json", "conformance/lexer/compiler-smoke.0"]).body;
 assert.equal(lexerTokens.schemaVersion, 1);
+assert.equal(lexerTokens.syntax, "canonical");
 assert.match(lexerTokens.sourceFile, /compiler-smoke\.0$/);
 assert.deepEqual(lexerTokens.tokens.slice(0, 4).map((token) => `${token.kind}:${token.text}`), [
   "word:use",
@@ -1869,19 +2174,19 @@ assert.deepEqual(lexerTokens.tokens.slice(0, 4).map((token) => `${token.kind}:${
 ]);
 assert.deepEqual(lexerTokens.tokens.filter((token) => token.kind === "number").map((token) => token.text), ["123", "0xff", "0b101", "42_u8"]);
 assert.deepEqual(lexerTokens.tokens.filter((token) => token.kind === "string" || token.kind === "char").map((token) => `${token.kind}:${token.text}`), [
-  "string:hi",
-  "char:120",
+  'string:"hi"',
+  "char:'x'",
 ]);
 assert.equal(lexerTokens.tokens[0].line, 1);
 assert.equal(lexerTokens.tokens[0].column, 1);
 assert.equal(lexerTokens.tokens[0].offset, 0);
 assert.equal(lexerTokens.tokens[0].length, 3);
 assert.equal(lexerTokens.tokens[5].offset, 12);
-assert.equal(lexerTokens.tokens[5].length, 3);
-assert.equal(lexerTokens.tokens[7].kind, "word");
-assert.equal(lexerTokens.tokens[7].text, "main");
-assert.equal(lexerTokens.tokens[7].line, 2);
-assert.equal(lexerTokens.tokens[7].column, 8);
+assert.equal(lexerTokens.tokens[5].length, 1);
+assert.equal(lexerTokens.tokens[8].kind, "word");
+assert.equal(lexerTokens.tokens[8].text, "main");
+assert.equal(lexerTokens.tokens[8].line, 3);
+assert.equal(lexerTokens.tokens[8].column, 8);
 assert.equal(lexerTokens.tokens.at(-1).kind, "eof");
 assert.equal(lexerTokens.tokens.at(-1).length, 0);
 
@@ -1899,418 +2204,62 @@ assert.equal(parseTree.functions[0].name, "main");
 assert.equal(parseTree.functions[0].paramCount, 1);
 assert.deepEqual(parseTree.functions[0].bodyKinds, ["if", "while", "check", "return"]);
 
-const rowCommandFixture = join(outDir, "row_command.row");
-const rowCommandSource =
+const unsupportedSourceFixture = join(outDir, "unsupported-source.txt");
+const unsupportedSourceText =
   "# command fixture\n" +
   "fn inc i32 value i32\n" +
   "  ret + value 1\n" +
   "\n" +
   "pub fn main Void\n" +
   "  let total i32 inc 41\n";
-writeFileSync(rowCommandFixture, rowCommandSource);
-assert.equal(zero(["fmt", rowCommandFixture]).stdout, rowCommandSource);
-assert.match(zero(["fmt", "--check", rowCommandFixture]).stdout, /fmt ok/);
-const rowTokens = json(["tokens", "--json", rowCommandFixture]).body;
-assert.equal(rowTokens.schemaVersion, 1);
-assert.equal(rowTokens.syntax, "row");
-assert.deepEqual(rowTokens.tokens.slice(0, 4).map((token) => `${token.kind}:${token.text}`), [
-  "comment:# command fixture",
-  "newline:",
-  "word:fn",
-  "word:inc",
-]);
-const rowParseTree = json(["parse", "--json", rowCommandFixture]).body;
-assert.equal(rowParseTree.schemaVersion, 1);
-assert.equal(rowParseTree.root.functionCount, 2);
-assert.deepEqual(rowParseTree.functions.map((fun) => fun.name), ["inc", "main"]);
-assert.deepEqual(rowParseTree.functions.map((fun) => fun.bodyKinds), [["return"], ["let"]]);
-const rowCheck = json(["check", "--json", rowCommandFixture]).body;
-assert.equal(rowCheck.ok, true);
-assert.equal(rowCheck.sourceFile, rowCommandFixture);
-assert(rowCheck.interfaceFingerprints.modules.some((module) => module.name === "row_command" && module.publicSymbols.some((symbol) => symbol.name === "main")));
-const rowGraph = json(["graph", "--json", rowCommandFixture]).body;
-assert.equal(rowGraph.schemaVersion, 1);
-assert.equal(rowGraph.sourceFile, rowCommandFixture);
-assert(rowGraph.sourceFiles.includes(rowCommandFixture));
-assert(rowGraph.symbols.some((symbol) => symbol.name === "inc" && symbol.kind === "function"));
-assert(rowGraph.functions.some((fun) => fun.name === "main"));
+rmSync(unsupportedSourceFixture, { force: true });
+writeFileSync(unsupportedSourceFixture, unsupportedSourceText);
+for (const args of [
+  ["check", "--json", unsupportedSourceFixture],
+  ["tokens", "--json", unsupportedSourceFixture],
+  ["parse", "--json", unsupportedSourceFixture],
+  ["build", "--json", unsupportedSourceFixture],
+] as string[][]) {
+  const rejected = json(args, { allowFailure: true });
+  assert.notEqual(rejected.code, 0);
+  assert.equal(rejected.body.diagnostics[0].code, "BLD002");
+  assert.equal(rejected.body.diagnostics[0].message, "expected Zero source file or package");
+  assert.equal(rejected.body.diagnostics[0].expected, ".0 source file, zero.json, or package directory");
+}
+for (const args of [
+  ["graph", "check", "--json", unsupportedSourceFixture],
+  ["graph", "view", "--json", unsupportedSourceFixture],
+] as string[][]) {
+  const rejected = json(args, { allowFailure: true });
+  assert.notEqual(rejected.code, 0);
+  assert.equal(rejected.body.diagnostics[0].code, "PAR100");
+  assert.equal(rejected.body.diagnostics[0].message, "expected zero-graph v1 header");
+}
+const unsupportedFmtRejected = zero(["fmt", "--check", unsupportedSourceFixture], { allowFailure: true });
+assert.notEqual(unsupportedFmtRejected.code, 0);
+assert.match(unsupportedFmtRejected.stderr, /expected Zero source file or package/);
+assert.match(unsupportedFmtRejected.stderr, /\.0 source file, zero\.json, or package directory/);
 
-const rowTestFixture = join(outDir, "row_test_command.row");
+const unsupportedSourcePackage = join(outDir, "unsupported-source-package");
+rmSync(unsupportedSourcePackage, { recursive: true, force: true });
+mkdirSync(join(unsupportedSourcePackage, "src"), { recursive: true });
 writeFileSync(
-  rowTestFixture,
-  "fn add i32 left i32 right i32\n" +
-    "  ret + left right\n" +
-    "\n" +
-    "test \"row addition\"\n" +
-    "  expect == (add 20 22) 42\n" +
-    "\n" +
-    "test \"xfail: row pending\"\n" +
-    "  expect false\n" +
-    "\n" +
-    "pub fn main Void\n",
-);
-const rowTestJson = json(["test", "--json", rowTestFixture]).body;
-assert.equal(rowTestJson.ok, true);
-assert.equal(rowTestJson.testBackend, "direct-frontend");
-assert.equal(rowTestJson.discoveredTests, 2);
-assert.equal(rowTestJson.expectedFailures, 1);
-assert(rowTestJson.results.some((result) => result.name === "row addition" && result.status === "passed"));
-assert(rowTestJson.results.some((result) => result.name === "xfail: row pending" && result.status === "expected-fail"));
-const rowTestSizePath = join(outDir, "row-test-sized");
-rmSync(rowTestSizePath, { force: true });
-const rowTestSize = json(["size", "--json", "--target", "linux-musl-x64", rowTestFixture, "--out", rowTestSizePath]).body;
-assert.equal(rowTestSize.sourceFile, rowTestFixture);
-assert.equal(rowTestSize.generatedCBytes, 0);
-assert(rowTestSize.retentionReasons.some((item) => item.name === "row addition" && item.reason === "zero test discovery"));
-const rowTestDev = json(["dev", "--json", "--trace", rowTestFixture]).body;
-assert.equal(rowTestDev.trace.requested, true);
-assert(rowTestDev.watch.files.includes(rowTestFixture));
-assert.equal(rowTestDev.affected.tests, 2);
-
-const rowHelperFixture = join(outDir, "row_helper.row");
-writeFileSync(
-  rowHelperFixture,
-  "pub fn double i32 value i32\n" +
-    "  ret + value value\n",
-);
-const rowImportFixture = join(outDir, "row_import_main.row");
-writeFileSync(
-  rowImportFixture,
-  "use row_helper\n" +
-    "pub fn main Void\n" +
-    "  let total i32 double 21\n",
-);
-const rowImportCheck = json(["check", "--json", rowImportFixture]).body;
-assert.equal(rowImportCheck.ok, true);
-assert(rowImportCheck.incrementalInvalidation.changedInputs.sourceFiles.includes(rowHelperFixture));
-const rowImportGraph = json(["graph", "--json", rowImportFixture]).body;
-assert(rowImportGraph.sourceFiles.includes(rowImportFixture));
-assert(rowImportGraph.sourceFiles.includes(rowHelperFixture));
-assert(rowImportGraph.imports.includes("row_helper"));
-assert(rowImportGraph.importEdges.some((edge) => edge.from === "row_import_main" && edge.to === "row_helper" && edge.path === rowHelperFixture));
-assert(rowImportGraph.functions.some((fun) => fun.name === "double"));
-
-const rowPackage = join(outDir, "row-package");
-mkdirSync(join(rowPackage, "src"), { recursive: true });
-writeFileSync(
-  join(rowPackage, "zero.json"),
+  join(unsupportedSourcePackage, "zero.json"),
   JSON.stringify(
     {
-      package: { name: "row-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.row" } },
+      package: { name: "unsupported-source-package", version: "0.1.0" },
+      targets: { cli: { kind: "exe", main: "src/main.txt" } },
     },
     null,
     2,
   ) + "\n",
 );
-const rowPackageMain = join(rowPackage, "src", "main.row");
-const rowPackageHelper = join(rowPackage, "src", "helper.row");
-writeFileSync(
-  rowPackageHelper,
-  "pub fn double i32 value i32\n" +
-    "  ret + value value\n",
-);
-writeFileSync(
-  rowPackageMain,
-  "use helper\n" +
-    "test \"package helper\"\n" +
-    "  expect == (double 21) 42\n" +
-    "pub fn main Void\n" +
-    "  let total i32 double 21\n",
-);
-assert.match(zero(["fmt", "--check", rowPackage]).stdout, /fmt ok/);
-const rowPackageTokens = json(["tokens", "--json", rowPackage]).body;
-assert.equal(rowPackageTokens.syntax, "row");
-assert.equal(rowPackageTokens.sourceFile, rowPackageMain);
-const rowPackageParse = json(["parse", "--json", rowPackage]).body;
-assert.equal(rowPackageParse.root.functionCount, 3);
-assert(rowPackageParse.functions.some((fun) => fun.name === "double"));
-const rowPackageCheck = json(["check", "--json", rowPackage]).body;
-assert.equal(rowPackageCheck.ok, true);
-assert.equal(rowPackageCheck.package.name, "row-package");
-assert(rowPackageCheck.incrementalInvalidation.changedInputs.sourceFiles.includes(rowPackageHelper));
-const rowPackageGraph = json(["graph", "--json", rowPackage]).body;
-assert(rowPackageGraph.sourceFiles.includes(rowPackageMain));
-assert(rowPackageGraph.sourceFiles.includes(rowPackageHelper));
-assert(rowPackageGraph.importEdges.some((edge) => edge.from === "main" && edge.to === "helper" && edge.path === rowPackageHelper));
-assert(rowPackageGraph.functions.some((fun) => fun.name === "double"));
-const rowPackageTest = json(["test", "--json", rowPackage]).body;
-assert.equal(rowPackageTest.ok, true);
-assert.equal(rowPackageTest.testDiscovery.mode, "package");
-assert.equal(rowPackageTest.discoveredTests, 1);
-assert(rowPackageTest.fixtures.sourceFiles.includes(rowPackageHelper));
-assert.equal(rowPackageTest.results[0].status, "passed");
-
-const rowArtifactDir = join(outDir, "row-artifact");
-const currentArtifactDir = join(outDir, "current-artifact");
-rmSync(rowArtifactDir, { recursive: true, force: true });
-rmSync(currentArtifactDir, { recursive: true, force: true });
-mkdirSync(rowArtifactDir, { recursive: true });
-mkdirSync(currentArtifactDir, { recursive: true });
-const rowArtifactMain = join(rowArtifactDir, "main.row");
-const rowArtifactHelper = join(rowArtifactDir, "helper.row");
-const currentArtifactMain = join(currentArtifactDir, "main.0");
-const currentArtifactHelper = join(currentArtifactDir, "helper.0");
-writeFileSync(
-  rowArtifactHelper,
-  "pub fn plusOne i32 value i32\n" +
-    "  ret + value 1\n",
-);
-writeFileSync(
-  rowArtifactMain,
-  "use helper\n" +
-    "export c fn main i32\n" +
-    "  ret plusOne 41\n",
-);
-writeFileSync(
-  currentArtifactHelper,
-  "pub fn plusOne i32 value i32\n" +
-    "  ret + value 1\n",
-);
-writeFileSync(
-  currentArtifactMain,
-  "use helper\n" +
-    "export c fn main i32\n" +
-    "  ret plusOne 41\n",
-);
-const rowArtifactGraph = json(["graph", "--json", rowArtifactMain]).body;
-const currentArtifactGraph = json(["graph", "--json", currentArtifactMain]).body;
-const functionSummary = (fun) => ({
-  name: fun.name,
-  public: fun.public,
-  params: fun.params,
-  returnType: fun.returnType,
-  raises: fun.raises,
-});
-const publicSymbolSummary = (symbol) => ({
-  name: symbol.name,
-  kind: symbol.kind,
-  public: symbol.public,
-});
-assert.deepEqual(rowArtifactGraph.functions.map(functionSummary), currentArtifactGraph.functions.map(functionSummary));
-assert.deepEqual(
-  rowArtifactGraph.symbols.filter((symbol) => symbol.public).map(publicSymbolSummary),
-  currentArtifactGraph.symbols.filter((symbol) => symbol.public).map(publicSymbolSummary),
-);
-assert.deepEqual(rowArtifactGraph.imports, ["helper"]);
-assert.deepEqual(currentArtifactGraph.imports, ["helper"]);
-assert(rowArtifactGraph.sourceFiles.includes(rowArtifactMain));
-assert(rowArtifactGraph.sourceFiles.includes(rowArtifactHelper));
-assert.equal(rowArtifactGraph.sourceFiles.length, currentArtifactGraph.sourceFiles.length);
-
-const rowArtifactBuildOut = join(outDir, "row-artifact-build");
-rmSync(rowArtifactBuildOut, { force: true });
-const rowArtifactBuild = json(["build", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowArtifactBuildOut]).body;
-assert.equal(rowArtifactBuild.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactBuild.generatedCBytes, 0);
-assert.equal(rowArtifactBuild.cBridgeFallback ?? false, false);
-assert.equal(rowArtifactBuild.objectBackend.objectEmission.path, "direct-elf64-exe");
-assert.equal(rowArtifactBuild.objectBackend.linking.externalToolchain, "none");
-assert.equal(rowArtifactBuild.objectBackend.directFacts.functionCount, 2);
-assert(rowArtifactBuild.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactHelper));
-assert(rowArtifactBuild.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactMain));
-assertReleaseTargetContract(rowArtifactBuild, {
-  target: "linux-musl-x64",
-  emit: "exe",
-  objectFormat: "elf",
-  artifactKind: "native-executable",
-  linkerFlavor: "elf64",
-  targetLibcMode: "bundled-libc",
-});
-repeatBuildHash(
-  ["build", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowArtifactBuildOut],
-  rowArtifactBuildOut,
-  `${rowArtifactBuildOut}.repeat`,
-);
-
-const rowArtifactObjOut = join(outDir, "row-artifact.o");
-rmSync(rowArtifactObjOut, { force: true });
-const rowArtifactObj = json(["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowArtifactObjOut]).body;
-const rowArtifactObjBytes = readFileSync(rowArtifactObjOut);
-assert.equal(rowArtifactObj.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactObj.emit, "obj");
-assert.equal(rowArtifactObj.generatedCBytes, 0);
-assert.equal(rowArtifactObj.objectBackend.objectEmission.path, "direct-elf64-object");
-assert.equal(rowArtifactObj.objectBackend.linking.externalToolchain, "none");
-assert.equal(rowArtifactObjBytes[0], 0x7f);
-assert.equal(rowArtifactObjBytes[1], 0x45);
-assert.equal(rowArtifactObjBytes[2], 0x4c);
-assert.equal(rowArtifactObjBytes[3], 0x46);
-
-const rowRunArtifactOut = join(outDir, "row-run-artifact");
-rmSync(rowRunArtifactOut, { force: true });
-rmSync(`${rowRunArtifactOut}.exe`, { force: true });
-rmSync(`${rowRunArtifactOut}.c`, { force: true });
-const rowRunResult = zero(["run", "--out", rowRunArtifactOut, rowArtifactMain], { allowFailure: true });
-assert.equal(rowRunResult.code, 42);
-assert.equal(rowRunResult.stdout, "");
-assert(existsSync(version.host.startsWith("win32") ? `${rowRunArtifactOut}.exe` : rowRunArtifactOut));
-assert.equal(existsSync(`${rowRunArtifactOut}.c`), false);
-
-const rowShipOut = join(outDir, "row-ship-artifact");
-const firstRowShip = json(["ship", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowShipOut]).body;
-assert.equal(firstRowShip.sourceFile, rowArtifactMain);
-assertShipReport(firstRowShip, rowShipOut);
-const secondRowShip = json(["ship", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowShipOut]).body;
-assertShipReport(secondRowShip, rowShipOut);
-assert.equal(secondRowShip.checksum.value, firstRowShip.checksum.value);
-assert.equal(secondRowShip.artifactBytes, firstRowShip.artifactBytes);
-
-const rowArtifactMem = json(["mem", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactMem.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactMem.generatedCBytes, 0);
-assert.equal(rowArtifactMem.cBridgeFallback, false);
-assert.equal(rowArtifactMem.directFacts.functionCount, 2);
-assert.equal(rowArtifactMem.memory.hiddenHeapAllocation, false);
-assert(rowArtifactMem.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactHelper));
-const rowArtifactTime = json(["time", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactTime.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactTime.generatedCBytes, 0);
-assert.equal(rowArtifactTime.cBridgeFallback, false);
-assert(rowArtifactTime.compilerPhases.some((phase) => phase.name === "parse"));
-assert(rowArtifactTime.compilerPhases.some((phase) => phase.name === "link"));
-assert(rowArtifactTime.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactHelper));
-const rowArtifactAbiDump = json(["abi", "dump", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactAbiDump.sourceFile, rowArtifactMain);
-assert(rowArtifactAbiDump.cExports.some((item) => item.name === "main" && item.cReturnType === "int32_t"));
-assert.match(rowArtifactAbiDump.generatedHeader.text, /int32_t main\(void\);/);
-const rowArtifactAbiCheck = json(["abi", "check", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactAbiCheck.ok, true);
-assert.equal(rowArtifactAbiCheck.sourceFile, rowArtifactMain);
-assert.deepEqual(rowArtifactAbiCheck.diagnostics, []);
-
-const rowMissingMainPackage = join(outDir, "row-missing-main-package");
-mkdirSync(join(rowMissingMainPackage, "src"), { recursive: true });
-writeFileSync(
-  join(rowMissingMainPackage, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "row-missing-main-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/missing.row" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
-const rowMissingMainCheck = json(["check", "--json", rowMissingMainPackage], { allowFailure: true });
-assert.notEqual(rowMissingMainCheck.code, 0);
-assert.equal(rowMissingMainCheck.body.diagnostics[0].code, "BLD002");
-assert.match(rowMissingMainCheck.body.diagnostics[0].message, /target main source does not exist/);
-
-const rowDependencyLib = join(outDir, "row-dependency-lib");
-mkdirSync(join(rowDependencyLib, "src"), { recursive: true });
-writeFileSync(
-  join(rowDependencyLib, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "row-dependency-lib", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.row" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
-writeFileSync(join(rowDependencyLib, "src", "main.row"), "pub fn main Void\n");
-
-const rowDependencyPackage = join(outDir, "row-dependency-package");
-mkdirSync(join(rowDependencyPackage, "src"), { recursive: true });
-writeFileSync(
-  join(rowDependencyPackage, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "row-dependency-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.row" } },
-      dependencies: { helper: { path: "../row-dependency-lib", version: "0.1.0" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
-writeFileSync(join(rowDependencyPackage, "src", "main.row"), "pub fn main Void\n");
-const rowDependencyCheck = json(["check", "--json", rowDependencyPackage]).body;
-assert.equal(rowDependencyCheck.ok, true);
-assert(rowDependencyCheck.package.dependencies.some((dep) => dep.name === "helper" && dep.resolvedName === "row-dependency-lib" && dep.status === "path-resolved"));
-assert(rowDependencyCheck.package.lockfile.generated);
-
-const rowMalformedImportFixture = join(outDir, "row_malformed_import.row");
-writeFileSync(
-  rowMalformedImportFixture,
-  "use row helper\n" +
-    "pub fn main Void\n",
-);
-const rowMalformedImportCheck = json(["check", "--json", rowMalformedImportFixture], { allowFailure: true });
-assert.notEqual(rowMalformedImportCheck.code, 0);
-assert.equal(rowMalformedImportCheck.body.diagnostics[0].code, "PAR100");
-assert.match(rowMalformedImportCheck.body.diagnostics[0].message, /expected '\.' between import module segments/);
-
-const rowTypeMismatchFixture = join(outDir, "row_type_mismatch.row");
-writeFileSync(
-  rowTypeMismatchFixture,
-  "pub fn main Void\n" +
-    "  let value i32 \"nope\"\n",
-);
-const rowFixPlan = json(["fix", "--plan", "--json", rowTypeMismatchFixture]).body;
-assert.equal(rowFixPlan.ok, false);
-assert.equal(rowFixPlan.mode, "plan");
-assert.equal(rowFixPlan.diagnostics[0].code, "TYP002");
-assert.equal(rowFixPlan.diagnostics[0].path, rowTypeMismatchFixture);
-assert.equal(rowFixPlan.diagnostics[0].line, 2);
-assert.equal(rowFixPlan.fixes[0].diagnosticCode, "TYP002");
-
-const rowCycleAFixture = join(outDir, "row_cycle_a.row");
-const rowCycleBFixture = join(outDir, "row_cycle_b.row");
-writeFileSync(
-  rowCycleAFixture,
-  "use row_cycle_b\n" +
-    "pub fn a Void\n",
-);
-writeFileSync(
-  rowCycleBFixture,
-  "use row_cycle_a\n" +
-    "pub fn b Void\n",
-);
-const rowCycleCheck = json(["check", "--json", rowCycleAFixture], { allowFailure: true });
-assert.notEqual(rowCycleCheck.code, 0);
-assert.equal(rowCycleCheck.body.diagnostics[0].code, "IMP002");
-assert.equal(rowCycleCheck.body.diagnostics[0].path, rowCycleBFixture);
-assert.equal(rowCycleCheck.body.diagnostics[0].actual, "row_cycle_a -> row_cycle_b -> row_cycle_a");
-
-const rowDupMainFixture = join(outDir, "row_dup_main.row");
-const rowDupAFixture = join(outDir, "row_dup_a.row");
-const rowDupBFixture = join(outDir, "row_dup_b.row");
-writeFileSync(
-  rowDupMainFixture,
-  "use row_dup_a\n" +
-    "use row_dup_b\n" +
-    "pub fn main Void\n",
-);
-writeFileSync(rowDupAFixture, "pub fn shared Void\n");
-writeFileSync(rowDupBFixture, "pub fn shared Void\n");
-const rowDuplicatePublicCheck = json(["check", "--json", rowDupMainFixture], { allowFailure: true });
-assert.notEqual(rowDuplicatePublicCheck.code, 0);
-assert.equal(rowDuplicatePublicCheck.body.diagnostics[0].code, "IMP003");
-assert.match(rowDuplicatePublicCheck.body.diagnostics[0].message, /duplicate public symbol 'shared'/);
-assert.match(rowDuplicatePublicCheck.body.diagnostics[0].actual, /shared also exported by row_dup_a/);
-
-const rowMetadataFixture = join(outDir, "row_metadata.row");
-const rowMetadataSource =
-  "pub enum Mode\n" +
-  "  auto\n" +
-  "  manual\n" +
-  "pub choice Result\n" +
-  "  ok i32\n" +
-  "  err String\n" +
-  "test \"metadata\"\n" +
-  "  let total i32 + 1 1\n" +
-  "pub fn main Void\n";
-writeFileSync(rowMetadataFixture, rowMetadataSource);
-const rowMetadataGraph = json(["graph", "--json", rowMetadataFixture]).body;
-assert(rowMetadataGraph.symbols.some((symbol) => symbol.name === "Mode" && symbol.kind === "enum" && symbol.public === true));
-assert(rowMetadataGraph.symbols.some((symbol) => symbol.name === "Result" && symbol.kind === "choice" && symbol.public === true));
-assert(!rowMetadataGraph.symbols.some((symbol) => symbol.name.startsWith("__zero_test_")));
-const rowMetadataDoc = json(["doc", "--json", rowMetadataFixture]).body;
-assert(rowMetadataDoc.symbols.some((symbol) => symbol.name === "Mode" && symbol.kind === "enum"));
-assert(rowMetadataDoc.symbols.some((symbol) => symbol.name === "Result" && symbol.kind === "choice"));
+writeFileSync(join(unsupportedSourcePackage, "src", "main.txt"), unsupportedSourceText);
+const unsupportedPackageRejected = json(["check", "--json", unsupportedSourcePackage], { allowFailure: true });
+assert.notEqual(unsupportedPackageRejected.code, 0);
+assert.equal(unsupportedPackageRejected.body.diagnostics[0].code, "BLD002");
+assert.equal(unsupportedPackageRejected.body.diagnostics[0].message, "target main source must use canonical Zero source");
+assert.equal(unsupportedPackageRejected.body.diagnostics[0].expected, ".0 source file");
 
 const testJson = json(["test", "--json", "--filter", "addition", "conformance/native/pass/test-blocks.0"]).body;
 assert.equal(testJson.schemaVersion, 1);
@@ -2361,6 +2310,7 @@ for (const kind of ["cli", "lib", "package"]) {
   assertTemplateManifest(kind, manifest, readme);
   zero(["check", project]);
   zero(["test", project]);
+  assert.match(zero(["fmt", "--check", project]).stdout, /fmt ok/);
   if (kind !== "lib") {
     const templateRun = zero(["run", "--out", join(project, "run-app"), project]).stdout;
     assert.match(templateRun, kind === "cli" ? /hello from zero\n/ : /package ok\n/);
@@ -2394,6 +2344,16 @@ const tinyHello = join(outDir, "tiny-hello");
 rmSync(tinyHello, { force: true });
 zero(["build", "--release", "tiny", "--target", "linux-musl-x64", "examples/hello.0", "--out", tinyHello]);
 assert(statSync(tinyHello).size < 10 * 1024);
+const profileCacheCheckSource = join(outDir, "profile-cache-check.0");
+writeFileSync(profileCacheCheckSource, `pub fn main(world: World) -> Void raises {
+    check world.out.write("profile cache ${process.pid}\\n")
+}
+`);
+const profileCacheCheck = json(["check", "--json", "--profile", "fast", profileCacheCheckSource]).body;
+const profileCacheSpecialization = profileCacheCheck.compilerCaches.find((cache) => cache.name === "specialization");
+assert(profileCacheSpecialization);
+assert.equal(profileCacheCheck.incrementalInvalidation.profileDependency, "fast");
+assert.equal(existsSync(join(".zero", "cache", "native", `specialization-${profileCacheSpecialization.key}.cache`)), true);
 const buildReport = json(["build", "--json", "--target", "linux-musl-x64", "examples/hello.0", "--out", join(outDir, "hello-linux-report")]).body;
 assert.equal(buildReport.schemaVersion, 1);
 assert.equal(buildReport.emit, "exe");
@@ -2406,6 +2366,13 @@ assert(buildReport.loweredIrBytes > 0);
 assert.equal(buildReport.targetSupport.fsAvailable, true);
 assert.equal(buildReport.profileSemantics.profileKey, "small");
 assert.equal(buildReport.profileSemantics.profileBudget.generatedCBytes, 0);
+assert.equal(buildReport.safetyFacts.profileKey, "small");
+assert.equal(buildReport.safetyFacts.bounds.policy, "checked");
+assert.equal(buildReport.safetyFacts.bounds.optimizerElision, false);
+assert.equal(buildReport.safetyFacts.overflow.policy, "literal-range-checked-runtime-unchecked");
+assert.equal(buildReport.safetyFacts.initialization.locals, "initializer-required");
+assert.equal(buildReport.safetyFacts.aliasing.mutableAliases, "diagnostic");
+assert.equal(buildReport.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 assert.equal(buildReport.profileBudget.cBridgeFallback, false);
 assert.equal(buildReport.objectBackend.objectEmission.path, "direct-elf64-exe");
 assert.equal(buildReport.objectBackend.linking.externalToolchain, "none");
@@ -2439,13 +2406,19 @@ for (const [requestedProfile, canonicalProfile, profileKey] of [
   assert.equal(profileReport.generatedCBytes, 0);
   assert.equal(profileReport.profileSemantics.canonical, canonicalProfile);
   assert.equal(profileReport.profileSemantics.profileKey, profileKey);
+  assert.equal(profileReport.profileSemantics.boundsPolicy, "checked");
+  assert.equal(profileReport.profileSemantics.overflowPolicy, "literal-range-checked-runtime-unchecked");
   assert.equal(profileReport.profileSemantics.profileBudget.generatedCBytes, 0);
+  assert.equal(profileReport.safetyFacts.profile, canonicalProfile);
+  assert.equal(profileReport.safetyFacts.profileKey, profileKey);
   assert.equal(profileReport.profileBudget.helperBudgetPolicy, profileReport.profileSemantics.profileBudget.helperBudgetPolicy);
   repeatBuildHash(["build", "--json", "--profile", requestedProfile, "--target", "linux-musl-x64", "examples/hello.0", "--out", profileOut], profileOut, `${profileOut}.repeat`);
 }
 
 const profileSizeReport = json(["size", "--json", "--profile", "debug", "--target", "linux-musl-x64", "examples/memory-primitives.0"]).body;
 assert.equal(profileSizeReport.profileSemantics.profileKey, "debug");
+assert.equal(profileSizeReport.safetyFacts.profileKey, "debug");
+assert.equal(profileSizeReport.safetyFacts.uncheckedSurfaces[0].policy, "externally-trusted");
 assert.equal(profileSizeReport.sizeBreakdown.profileKey, "debug");
 assert(profileSizeReport.sizeBreakdown.functions.some((item) => item.name === "main" && item.retainedBy === "entry point"));
 assert(profileSizeReport.sizeBreakdown.sections.some((item) => item.name === "debug-metadata"));
@@ -2722,8 +2695,9 @@ assert(directAarch64HelloBytes.includes(Buffer.from("hello from zero")));
 assert(hasAarch64VoidReturnEpilogue(directAarch64HelloBytes));
 const directAarch64VoidImplicitSource = join(outDir, "direct-aarch64-void-implicit.0");
 const directAarch64VoidImplicitPath = join(outDir, "direct-aarch64-void-implicit");
-writeFileSync(directAarch64VoidImplicitSource, `export c fn main Void
-  let ok Bool true
+writeFileSync(directAarch64VoidImplicitSource, `export c fn main() -> Void {
+    let ok: Bool = true
+}
 `);
 rmSync(directAarch64VoidImplicitPath, { force: true });
 const directAarch64VoidImplicitReport = json(["build", "--json", "--emit", "exe", "--target", "linux-musl-arm64", directAarch64VoidImplicitSource, "--out", directAarch64VoidImplicitPath]).body;
@@ -2769,10 +2743,11 @@ assert.equal(directArm64ObjBytes.readUInt16LE(18), 183);
 assert(directArm64ObjBytes.includes(Buffer.from([0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6])));
 const directArm64IndexStoreSource = join(outDir, "direct-arm64-index-store-scratch.0");
 const directArm64IndexStoreObjPath = join(outDir, "direct-arm64-index-store-scratch.o");
-writeFileSync(directArm64IndexStoreSource, `export c fn main u32
-  mut values [4]u32 [0, 0, 0, 0]
-  set values[% 5_u32 4_u32] 7_u32
-  ret values[1]
+writeFileSync(directArm64IndexStoreSource, `export c fn main() -> u32 {
+    var values: [4]u32 = [0, 0, 0, 0]
+    values[5_u32 % 4_u32] = 7_u32
+    return values[1]
+}
 `);
 rmSync(directArm64IndexStoreObjPath, { force: true });
 const directArm64IndexStoreObjReport = json(["build", "--json", "--emit", "obj", "--target", "linux-arm64", directArm64IndexStoreSource, "--out", directArm64IndexStoreObjPath]).body;
@@ -2846,13 +2821,15 @@ for (const { target, outName, compiler, emissionPath, magic } of directStringEql
   assert(directStringEqlBytes.includes(Buffer.from("token")));
 }
 const directArm64DynamicStringEqlSource = join(outDir, "direct-arm64-dynamic-string-eql.0");
-writeFileSync(directArm64DynamicStringEqlSource, `export c fn main u8
-  let text String "token"
-  let start usize 0
-  let end usize 5
-  if std.mem.eqlBytes text[(% start 1_usize)..end] "token"[(% start 1_usize)..end]
-    ret 1_u8
-  ret 0_u8
+writeFileSync(directArm64DynamicStringEqlSource, `export c fn main() -> u8 {
+    let text: String = "token"
+    let start: usize = 0
+    let end: usize = 5
+    if std.mem.eqlBytes(text[(start % 1_usize)..end], "token"[(start % 1_usize)..end]) {
+        return 1_u8
+    }
+    return 0_u8
+}
 `);
 for (const { target, outName, compiler, emissionPath, magic } of [
   { target: "linux-arm64", outName: "direct-dynamic-string-eql-linux-arm64.o", compiler: "zero-elf-aarch64", emissionPath: "direct-elf-aarch64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
@@ -2891,103 +2868,144 @@ for (const { target, outName, compiler, emissionPath, magic } of directByteCopyF
   assert(directByteCopyFillBytes.includes(Buffer.from("token")));
 }
 const directStdPathSource = join(outDir, "direct-std-path-matrix.0");
-writeFileSync(directStdPathSource, `export c fn main u8
-  mut norm [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let normalized std.path.normalize norm "src//./main.0/"
-  mut parent [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let parent_normalized std.path.normalize parent "src/a/../main.0"
-  mut joined_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let joined std.path.join joined_buf "src/" "/main.0"
-  let root_expected Span<u8> "/x"[..1]
-  mut empty_abs_join_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let empty_abs_joined std.path.join empty_abs_join_buf "" "/main.0"
-  mut rel [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let relative std.path.relative rel "src" "src/main.0"
-  mut fallback_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let fallback std.path.relative fallback_buf "other" "src/main.0"
-  mut small [3]u8 [0, 0, 0]
-  let overflow std.path.normalize small "abcd"
-  mut root [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let root_normalized std.path.normalize root "/src//./main.0/"
-  mut root_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let root_parent std.path.normalize root_parent_buf "/../src"
-  mut leading_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let leading_parent std.path.normalize leading_parent_buf "../src"
-  mut nested_parent_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let nested_parent std.path.normalize nested_parent_buf "a/../../b"
-  mut trim_fit_buf [1]u8 [0]
-  let trim_fit std.path.normalize trim_fit_buf "a/"
-  mut ok Bool true
-  if == normalized.has false
-    set ok false
-  if normalized.has
-    if == (std.mem.eql normalized.value "src/main.0") false
-      set ok false
-  if == parent_normalized.has false
-    set ok false
-  if parent_normalized.has
-    if == (std.mem.eql parent_normalized.value "src/main.0") false
-      set ok false
-  if == joined.has false
-    set ok false
-  if joined.has
-    if == (std.mem.eql joined.value "src/main.0") false
-      set ok false
-  if == empty_abs_joined.has false
-    set ok false
-  if empty_abs_joined.has
-    if == (std.mem.eql empty_abs_joined.value "/main.0") false
-      set ok false
-  if == relative.has false
-    set ok false
-  if relative.has
-    if == (std.mem.eql relative.value "main.0") false
-      set ok false
-  if == fallback.has false
-    set ok false
-  if fallback.has
-    if == (std.mem.eql fallback.value "src/main.0") false
-      set ok false
-  if overflow.has
-    set ok false
-  if == root_normalized.has false
-    set ok false
-  if root_normalized.has
-    if == (std.mem.eql root_normalized.value "/src/main.0") false
-      set ok false
-  if == root_parent.has false
-    set ok false
-  if root_parent.has
-    if == (std.mem.eql root_parent.value "/src") false
-      set ok false
-  if == leading_parent.has false
-    set ok false
-  if leading_parent.has
-    if == (std.mem.eql leading_parent.value "../src") false
-      set ok false
-  if == nested_parent.has false
-    set ok false
-  if nested_parent.has
-    if == (std.mem.eql nested_parent.value "../b") false
-      set ok false
-  if == trim_fit.has false
-    set ok false
-  if trim_fit.has
-    if == (std.mem.eql trim_fit.value "a") false
-      set ok false
-  if == (std.mem.eql (std.path.basename normalized.value) "main.0") false
-    set ok false
-  if == (std.mem.eql (std.path.dirname normalized.value) "src") false
-    set ok false
-  if == (std.mem.eql (std.path.dirname "/main.0") root_expected) false
-    set ok false
-  if == (std.mem.eql (std.path.dirname root_expected) root_expected) false
-    set ok false
-  if == (std.mem.eql (std.path.extension normalized.value) "0") false
-    set ok false
-  if ok
-    ret 1_u8
-  ret 0_u8
+writeFileSync(directStdPathSource, `export c fn main() -> u8 {
+    var norm: [32]u8 = [0_u8; 32]
+    let normalized: Maybe<String> = std.path.normalize(norm, "src//./main.0/")
+    var parent: [32]u8 = [0_u8; 32]
+    let parent_normalized: Maybe<String> = std.path.normalize(parent, "src/a/../main.0")
+    var joined_buf: [32]u8 = [0_u8; 32]
+    let joined: Maybe<String> = std.path.join(joined_buf, "src/", "/main.0")
+    let root_expected: Span<u8> = "/x"[..1]
+    var empty_abs_join_buf: [32]u8 = [0_u8; 32]
+    let empty_abs_joined: Maybe<String> = std.path.join(empty_abs_join_buf, "", "/main.0")
+    var rel: [32]u8 = [0_u8; 32]
+    let relative: Maybe<String> = std.path.relative(rel, "src", "src/main.0")
+    var fallback_buf: [32]u8 = [0_u8; 32]
+    let fallback: Maybe<String> = std.path.relative(fallback_buf, "other", "src/main.0")
+    var small: [3]u8 = [0_u8; 3]
+    let overflow: Maybe<String> = std.path.normalize(small, "abcd")
+    var root: [32]u8 = [0_u8; 32]
+    let root_normalized: Maybe<String> = std.path.normalize(root, "/src//./main.0/")
+    var root_parent_buf: [32]u8 = [0_u8; 32]
+    let root_parent: Maybe<String> = std.path.normalize(root_parent_buf, "/../src")
+    var leading_parent_buf: [32]u8 = [0_u8; 32]
+    let leading_parent: Maybe<String> = std.path.normalize(leading_parent_buf, "../src")
+    var nested_parent_buf: [32]u8 = [0_u8; 32]
+    let nested_parent: Maybe<String> = std.path.normalize(nested_parent_buf, "a/../../b")
+    var trim_fit_buf: [1]u8 = [0_u8; 1]
+    let trim_fit: Maybe<String> = std.path.normalize(trim_fit_buf, "a/")
+    var ok: Bool = true
+    if !normalized.has {
+        ok = false
+    }
+    if normalized.has {
+        if !std.mem.eql(normalized.value, "src/main.0") {
+            ok = false
+        }
+    }
+    if !parent_normalized.has {
+        ok = false
+    }
+    if parent_normalized.has {
+        if !std.mem.eql(parent_normalized.value, "src/main.0") {
+            ok = false
+        }
+    }
+    if !joined.has {
+        ok = false
+    }
+    if joined.has {
+        if !std.mem.eql(joined.value, "src/main.0") {
+            ok = false
+        }
+    }
+    if !empty_abs_joined.has {
+        ok = false
+    }
+    if empty_abs_joined.has {
+        if !std.mem.eql(empty_abs_joined.value, "/main.0") {
+            ok = false
+        }
+    }
+    if !relative.has {
+        ok = false
+    }
+    if relative.has {
+        if !std.mem.eql(relative.value, "main.0") {
+            ok = false
+        }
+    }
+    if !fallback.has {
+        ok = false
+    }
+    if fallback.has {
+        if !std.mem.eql(fallback.value, "src/main.0") {
+            ok = false
+        }
+    }
+    if overflow.has {
+        ok = false
+    }
+    if !root_normalized.has {
+        ok = false
+    }
+    if root_normalized.has {
+        if !std.mem.eql(root_normalized.value, "/src/main.0") {
+            ok = false
+        }
+    }
+    if !root_parent.has {
+        ok = false
+    }
+    if root_parent.has {
+        if !std.mem.eql(root_parent.value, "/src") {
+            ok = false
+        }
+    }
+    if !leading_parent.has {
+        ok = false
+    }
+    if leading_parent.has {
+        if !std.mem.eql(leading_parent.value, "../src") {
+            ok = false
+        }
+    }
+    if !nested_parent.has {
+        ok = false
+    }
+    if nested_parent.has {
+        if !std.mem.eql(nested_parent.value, "../b") {
+            ok = false
+        }
+    }
+    if !trim_fit.has {
+        ok = false
+    }
+    if trim_fit.has {
+        if !std.mem.eql(trim_fit.value, "a") {
+            ok = false
+        }
+    }
+    if !std.mem.eql(std.path.basename(normalized.value), "main.0") {
+        ok = false
+    }
+    if !std.mem.eql(std.path.dirname(normalized.value), "src") {
+        ok = false
+    }
+    if !std.mem.eql(std.path.dirname("/main.0"), root_expected) {
+        ok = false
+    }
+    if !std.mem.eql(std.path.dirname(root_expected), root_expected) {
+        ok = false
+    }
+    if !std.mem.eql(std.path.extension(normalized.value), "0") {
+        ok = false
+    }
+    if ok {
+        return 1_u8
+    }
+    return 0_u8
+}
 `);
 for (const { target, compiler, emissionPath, magic } of directByteCopyFillTargets) {
   const directStdPathPath = join(outDir, `direct-std-path-${target.replace(/[^a-z0-9]+/gi, "-")}.o`);
@@ -3001,39 +3019,53 @@ for (const { target, compiler, emissionPath, magic } of directByteCopyFillTarget
   assert(directStdPathBytes.includes(Buffer.from("src/main.0")));
 }
 const directStdStrSource = join(outDir, "direct-std-str-matrix.0");
-writeFileSync(directStdStrSource, `export c fn main u8
-  mut reversed_buf [6]u8 [0_u8;6]
-  let reversed std.str.reverse reversed_buf "drawer"
-  let trimmed std.str.trimAscii "  zero row  "
-  mut small [3]u8 [0_u8;3]
-  let overflow std.str.reverse small "drawer"
-  mut ok Bool true
-  if == reversed.has false
-    set ok false
-  if reversed.has
-    if == (std.mem.eql reversed.value "reward") false
-      set ok false
-  if overflow.has
-    set ok false
-  if != (std.str.countByte "banana" 97_u8) 3
-    set ok false
-  if == (std.str.startsWith "zero row syntax" "zero") false
-    set ok false
-  if == (std.str.endsWith "zero row syntax" "syntax") false
-    set ok false
-  if == (std.str.contains "zero row syntax" "row") false
-    set ok false
-  if std.str.contains "zero row syntax" "column"
-    set ok false
-  if == (std.str.contains "zero" "") false
-    set ok false
-  if == (std.mem.eql trimmed "zero row") false
-    set ok false
-  if != (std.str.wordCountAscii "zero row syntax") 3
-    set ok false
-  if ok
-    ret 1_u8
-  ret 0_u8
+writeFileSync(directStdStrSource, `export c fn main() -> u8 {
+    var reversed_buf: [6]u8 = [0_u8; 6]
+    let reversed: Maybe<Span<u8>> = std.str.reverse(reversed_buf, "drawer")
+    let trimmed: Span<u8> = std.str.trimAscii("  zero text  ")
+    var small: [3]u8 = [0_u8; 3]
+    let overflow: Maybe<Span<u8>> = std.str.reverse(small, "drawer")
+    var ok: Bool = true
+    if !reversed.has {
+        ok = false
+    }
+    if reversed.has {
+        if !std.mem.eql(reversed.value, "reward") {
+            ok = false
+        }
+    }
+    if overflow.has {
+        ok = false
+    }
+    if std.str.countByte("banana", 97_u8) != 3 {
+        ok = false
+    }
+    if !std.str.startsWith("zero text syntax", "zero") {
+        ok = false
+    }
+    if !std.str.endsWith("zero text syntax", "syntax") {
+        ok = false
+    }
+    if !std.str.contains("zero text syntax", "text") {
+        ok = false
+    }
+    if std.str.contains("zero text syntax", "column") {
+        ok = false
+    }
+    if !std.str.contains("zero", "") {
+        ok = false
+    }
+    if !std.mem.eql(trimmed, "zero text") {
+        ok = false
+    }
+    if std.str.wordCountAscii("zero text syntax") != 3 {
+        ok = false
+    }
+    if ok {
+        return 1_u8
+    }
+    return 0_u8
+}
 `);
 for (const { target, compiler, emissionPath, magic } of directByteCopyFillTargets) {
   const directStdStrPath = join(outDir, `direct-std-str-${target.replace(/[^a-z0-9]+/gi, "-")}.o`);
@@ -3044,46 +3076,64 @@ for (const { target, compiler, emissionPath, magic } of directByteCopyFillTarget
   assert.equal(directStdStrReport.generatedCBytes, 0);
   assert.equal(directStdStrReport.objectBackend.objectEmission.path, emissionPath);
   assert(directStdStrBytes.subarray(0, magic.length).equals(magic));
-  assert(directStdStrBytes.includes(Buffer.from("zero row syntax")));
+  assert(directStdStrBytes.includes(Buffer.from("zero text syntax")));
 }
 const directStdMathSource = join(outDir, "direct-std-math-matrix.0");
-writeFileSync(directStdMathSource, `export c fn main u8
-  mut ok Bool true
-  if != (std.math.minU32 8 3) 3
-    set ok false
-  if != (std.math.minU32 4000000000_u32 3) 3
-    set ok false
-  if != (std.math.maxU32 8 3) 8
-    set ok false
-  if != (std.math.maxU32 4000000000_u32 3) 4000000000_u32
-    set ok false
-  if != (std.math.clampU32 10 2 7) 7
-    set ok false
-  if != (std.math.clampU32 4000000000_u32 2 7) 7
-    set ok false
-  if != (std.math.clampU32 1 7 2) 2
-    set ok false
-  if != (std.math.gcdU32 84 30) 6
-    set ok false
-  if != (std.math.lcmU32 21 6) 42
-    set ok false
-  if != (std.math.powU32 3 4) 81
-    set ok false
-  if != (std.math.modPowU32 4 13 497) 445
-    set ok false
-  if != (std.math.modPowU32 9 0 1) 0
-    set ok false
-  if == (std.math.isPrimeU32 31) false
-    set ok false
-  if std.math.isPrimeU32 33
-    set ok false
-  if != (std.math.divisorCountU32 28) 6
-    set ok false
-  if != (std.math.properDivisorSumU32 28) 28
-    set ok false
-  if ok
-    ret 1_u8
-  ret 0_u8
+writeFileSync(directStdMathSource, `export c fn main() -> u8 {
+    var ok: Bool = true
+    if std.math.minU32(8, 3) != 3 {
+        ok = false
+    }
+    if std.math.minU32(4000000000_u32, 3) != 3 {
+        ok = false
+    }
+    if std.math.maxU32(8, 3) != 8 {
+        ok = false
+    }
+    if std.math.maxU32(4000000000_u32, 3) != 4000000000_u32 {
+        ok = false
+    }
+    if std.math.clampU32(10, 2, 7) != 7 {
+        ok = false
+    }
+    if std.math.clampU32(4000000000_u32, 2, 7) != 7 {
+        ok = false
+    }
+    if std.math.clampU32(1, 7, 2) != 2 {
+        ok = false
+    }
+    if std.math.gcdU32(84, 30) != 6 {
+        ok = false
+    }
+    if std.math.lcmU32(21, 6) != 42 {
+        ok = false
+    }
+    if std.math.powU32(3, 4) != 81 {
+        ok = false
+    }
+    if std.math.modPowU32(4, 13, 497) != 445 {
+        ok = false
+    }
+    if std.math.modPowU32(9, 0, 1) != 0 {
+        ok = false
+    }
+    if !std.math.isPrimeU32(31) {
+        ok = false
+    }
+    if std.math.isPrimeU32(33) {
+        ok = false
+    }
+    if std.math.divisorCountU32(28) != 6 {
+        ok = false
+    }
+    if std.math.properDivisorSumU32(28) != 28 {
+        ok = false
+    }
+    if ok {
+        return 1_u8
+    }
+    return 0_u8
+}
 `);
 for (const { target, compiler, emissionPath, magic } of directByteCopyFillTargets) {
   const directStdMathPath = join(outDir, `direct-std-math-${target.replace(/[^a-z0-9]+/gi, "-")}.o`);
@@ -3333,7 +3383,7 @@ assert.equal(depDoc.package.name, "dep-app");
 assert.equal(depDoc.publicationGate.requiresExamplesForPublicApi, true);
 const depBuild = json(["build", "--json", "--target", "linux-musl-x64", "conformance/packages/dep-app", "--out", join(outDir, "dep-app")]).body;
 assert.equal(depBuild.packageCache.invalidationReasons.includes("dependency graph changed"), true);
-assert.equal(depBuild.compilerCaches.every((item) => item.compilerVersion === "0.1.4" && item.packageVersion === "0.1.0"), true);
+assert.equal(depBuild.compilerCaches.every((item) => item.compilerVersion === "0.2.0" && item.packageVersion === "0.1.0"), true);
 const depDevTrace = json(["dev", "--json", "--trace", "--target", "linux-musl-x64", "conformance/packages/dep-app"]).body;
 assert.equal(depDevTrace.trace.requested, true);
 assert.equal(depDevTrace.partialDiagnostics.stable, true);
@@ -3358,10 +3408,13 @@ for (const [fixture, code] of [
   const result = json(["check", "--json", fixture], { allowFailure: true });
   assert.notEqual(result.code, 0);
   assert.equal(result.body.diagnostics[0].code, code);
+  assert.equal(result.body.safetyFacts.schemaVersion, 1);
+  assert.equal(result.body.safetyFacts.profileKey, "small");
 }
 const targetIncompatible = json(["check", "--json", "--target", "linux-musl-x64", "conformance/packages/target-incompatible-app"], { allowFailure: true });
 assert.notEqual(targetIncompatible.code, 0);
 assert.equal(targetIncompatible.body.diagnostics[0].code, "PKG004");
+assert.equal(targetIncompatible.body.safetyFacts.schemaVersion, 1);
 
 const zeroHashSize = json(["size", "--json", "--target", "linux-musl-x64", "examples/zero-hash", "--out", join(outDir, "zero-hash-sized")]).body;
 assert.equal(zeroHashSize.generatedCBytes, 0);
@@ -3594,7 +3647,7 @@ assert(fixedVecMethodsShape.methods.some((method) => method.name === "push" && t
 assert(fixedVecMethodsShape.fields.some((field) => field.name === "len" && field.hasDefault === true));
 
 const aliasGraph = json(["graph", "--json", "examples/type-alias.0"]).body;
-assert(aliasGraph.aliases.some((alias) => alias.name === "BytePair" && alias.target === "Pair<u8,u8>"));
+assert(aliasGraph.aliases.some((alias) => alias.name === "BytePair" && alias.target === "Pair<u8, u8>"));
 assert(aliasGraph.symbols.some((symbol) => symbol.name === "BytePair" && symbol.kind === "type-alias"));
 
 const constGraph = json(["graph", "--json", "examples/const-arithmetic.0"]).body;

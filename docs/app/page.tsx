@@ -8,46 +8,87 @@ export const metadata = pageMetadata("");
 
 const PILLARS = [
   {
-    metric: "Learnable",
-    label: "on demand",
-    title: "Small surface area",
-    description:
-      "zerolang is aiming for a language an agent can learn while working: regular syntax, few special cases, and compiler feedback that points toward the next edit.",
-  },
-  {
-    metric: "Library",
+    metric: "Graph",
     label: "first",
-    title: "Fewer dependency searches",
+    title: "Semantic edit surface",
     description:
-      "The long-term goal is a standard library broad and consistent enough that most programs start with documented APIs, not package selection.",
+      "Agents can inspect checked ProgramGraph facts and submit graph edits instead of only patching source text ranges.",
   },
   {
-    metric: "Inspectable",
-    label: "by tools",
-    title: "Deterministic repair loops",
+    metric: "Source",
+    label: "truth",
+    title: "Human-readable storage",
     description:
-      "The toolchain is intended to expose diagnostics, graphs, size reports, explanations, and repair plans as structured data agents can consume.",
+      ".0 source stays the durable representation: reviewable, auditable, formatted, and regular enough to behave like program data.",
+  },
+  {
+    metric: "Small",
+    label: "systems",
+    title: "Tight runtime goals",
+    description:
+      "Token efficiency, low memory usage, fast startup, fast builds, low runtime latency, and zero dependencies remain design constraints.",
   },
 ];
 
 const FEATURES = [
-  { title: "Pre-1 by design", description: "Today's syntax and APIs are not a contract. Breaking changes are expected while zerolang searches for what works best for agents." },
+  { title: "Experimental by design", description: "Today's syntax and APIs are not a contract. Breaking changes and removed compatibility paths are expected when a clearer agent-facing design wins." },
   { title: "Safe environments only", description: "Security vulnerabilities should be expected. Run and develop zerolang in isolated environments, not production systems or sensitive infrastructure." },
-  { title: "Exploration over mastery", description: "Try the current shape, inspect the output, and send feedback. The details will move as the experiment learns." },
-  { title: "One obvious path", description: "The language should favor a small set of regular patterns over many interchangeable styles." },
-  { title: "Standard library over sugar", description: "New capability should usually live in documented APIs before it becomes new syntax." },
-  { title: "Agent-readable tooling", description: "Diagnostics, graph facts, size reports, and repair metadata should be available as structured output." },
-  { title: "Explicit effects", description: "Outside-world access, fallibility, and resource use should stay visible to both readers and tools." },
-  { title: "No legacy promises", description: "When a clearer agent-facing design wins, zerolang can replace old behavior instead of carrying compatibility paths forward." },
-  { title: "DX as a goal", description: "Checking, inspecting, explaining, and repairing code should feel direct even when the language is intentionally explicit." },
+  { title: "Source-backed graph", description: "The ProgramGraph is derived from source. Graph artifacts are inspection and interchange data, not the primary project files." },
+  { title: "Checked graph edits", description: "Graph patches can target semantic nodes with graph-hash and field-value preconditions before source is written." },
+  { title: "Semantic facts", description: "The compiler can expose node IDs, resolved types, effects, ownership facts, capabilities, helper use, and module edges." },
+  { title: "Regular source", description: "The syntax should stay boring enough to index, compare, format, audit, and regenerate while still reading like normal code." },
+  { title: "Version-matched skills", description: "The compiler ships language, graph, diagnostics, build, testing, package, and stdlib guides that match the binary in use." },
+  { title: "Explicit effects", description: "Outside-world access, fallibility, ownership, and resource use should stay visible to both readers and tools." },
+  { title: "Direct CLI surface", description: "Agents can use compiler commands for checks, graph inspection, patching, size reports, explanations, and repair plans." },
 ];
 
-const CODE_EXAMPLE = `<span class="hl-keyword">fn</span> <span class="hl-variable">answer</span> <span class="hl-type">i32</span>
-  <span class="hl-keyword">ret</span> + <span class="hl-number">40</span> <span class="hl-number">2</span>
+const WHY_GRAPH = [
+  {
+    title: "Semantic navigation",
+    description:
+      "Agents should be able to start from a symbol, diagnostic, call, capability, module, or node ID and gather the relevant semantic slice without reading the whole file.",
+  },
+  {
+    title: "Precise edits",
+    description:
+      "Graph edits target compiler nodes and fields, with graph-hash and expected-value checks, instead of relying only on line ranges or matching source text.",
+  },
+  {
+    title: "Validated refactors",
+    description:
+      "Refactors can be represented as operations on resolved program structure: rename this function node, replace this resolved callee, update these related references.",
+  },
+  {
+    title: "Shorter feedback loop",
+    description:
+      "A graph patch can validate, lower, write, format, reparse, and check through the compiler instead of leaving agents to chain text edits and cleanup commands.",
+  },
+];
 
-<span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-variable">main</span> <span class="hl-type">Void</span> world <span class="hl-type">World</span> <span class="hl-keyword">!</span>
-  <span class="hl-keyword">if</span> == <span class="hl-variable">answer</span>() <span class="hl-number">42</span>
-    <span class="hl-keyword">check</span> world.out.<span class="hl-variable">write</span> <span class="hl-string">"math works\\n"</span>`;
+const CODE_EXAMPLE = `<span class="hl-keyword">fn</span> <span class="hl-variable">answer</span>() -> <span class="hl-type">i32</span> {
+    <span class="hl-keyword">return</span> <span class="hl-number">40</span> + <span class="hl-number">2</span>
+}
+
+<span class="hl-keyword">pub</span> <span class="hl-keyword">fn</span> <span class="hl-variable">main</span>(world: <span class="hl-type">World</span>) -> <span class="hl-type">Void</span> <span class="hl-keyword">raises</span> {
+    <span class="hl-keyword">if</span> <span class="hl-variable">answer</span>() == <span class="hl-number">42</span> {
+        <span class="hl-keyword">check</span> world.out.<span class="hl-variable">write</span>(<span class="hl-string">"math works\\n"</span>)
+    }
+}`;
+
+const GRAPH_EXAMPLE = `zero-graph v1
+origin source-text
+module "hello"
+hash "graph:b8a019041020df03"
+
+node #ea5ea1ca Function name:"main" type:"Void" public:true fallible:true
+node #f9ce8b3e Param name:"world" type:"World"
+node #421a4d4b MethodCall name:"write" type:"Void"
+node #610c78bf Literal type:"String" value:"hello from zero\\n"
+edge #421a4d4b arg #610c78bf order:0`;
+
+const PATCH_EXAMPLE = `zero graph patch examples/hello.0 \\
+  --expect-graph-hash graph:b8a019041020df03 \\
+  --op 'set node="#610c78bf" field="value" expect="hello from zero\\n" value="hello graph\\n"'`;
 
 function CodeWindow({ title, html, children }: { title: string; html?: string; children?: ReactNode }) {
   return (
@@ -75,25 +116,19 @@ export default function HomePage() {
       <main>
         <section className="relative z-10 mx-auto flex max-w-[52rem] flex-col items-center px-6 pb-16 pt-[clamp(4rem,12vh,8rem)] text-center">
           <div className="mb-6 inline-flex items-center rounded-full border border-border bg-surface px-3 py-1 text-[0.8125rem] font-medium text-muted">
-            Pre-1 experiment
+            Experimental
           </div>
           <h1 className="m-0 text-[clamp(2rem,5vw,3.75rem)] font-bold leading-[1.15] tracking-[-0.045em]">
             The programming language
             <br />
             for agents
           </h1>
-          <p className="mt-6 max-w-[38rem] text-[clamp(1rem,2vw,1.1875rem)] leading-[1.65] text-muted">
-            zerolang explores what a programming language can look like when agents
-            are primary users from day one. The aim is a language that is easy to
-            learn on the fly, deterministic to inspect and repair, standard-library
-            first, and explicit enough that most tasks have one obvious path.
+          <p className="mt-6 max-w-[42rem] text-[clamp(1rem,2vw,1.1875rem)] leading-[1.65] text-muted">
+            zerolang is an experimental graph-first programming language where agents work with semantic program structure instead of raw source text.
           </p>
           <InstallCopy />
-          <p className="mt-4 max-w-[34rem] text-sm leading-relaxed text-muted">
-            The current toolchain is useful for exploration, but today's syntax
-            and APIs are not a contract. Expect breaking changes while zerolang
-            searches for what works best for agents. Run it in a safe
-            environment, not against production systems.
+          <p className="mt-4 max-w-[36rem] text-sm leading-relaxed text-muted">
+            Expect breaking changes. Run it in a safe environment, not against production systems.
           </p>
         </section>
 
@@ -111,26 +146,47 @@ export default function HomePage() {
         </section>
 
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
+          <div className="mx-auto mb-10 max-w-[48rem] text-center">
+            <p className="mb-2 text-[0.8125rem] font-semibold uppercase tracking-[0.04em] text-blue">Why graph</p>
+            <h2 className="mb-4 text-[clamp(1.5rem,4vw,2.25rem)] font-bold leading-[1.15] tracking-[-0.035em]">
+              Source is the artifact.
+              <br />
+              The graph is the work surface.
+            </h2>
+            <p className="m-0 text-[1.0625rem] leading-[1.65] text-muted">
+              Source text is good for humans and review, but it is a weak interface for program understanding. Agents need to gather focused context, know what a call resolves to, avoid stale edits, change related structure, and get validation before source is written.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-2">
+            {WHY_GRAPH.map((item) => (
+              <div key={item.title} className="bg-bg p-8">
+                <h3 className="m-0 text-base font-semibold tracking-[-0.01em]">{item.title}</h3>
+                <p className="mt-3 mb-0 text-sm leading-relaxed text-muted">{item.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <CodeWindow title="main.0" html={CODE_EXAMPLE} />
-            <CodeWindow title="zero check">
-              <span className="text-[#D73A49] dark:text-[#F97583]">$</span>
-              <span className="text-[#6F42C1] dark:text-[#B392F0]"> zero</span>
-              <span className="text-[#032F62] dark:text-[#9ECBFF]"> check examples/hello.0</span>
-              {"\nhello.0:1:4 PAR100: expected '{' before block\n  explain: zero explain PAR100"}
+            <CodeWindow title="zero graph dump">
+              {GRAPH_EXAMPLE}
+            </CodeWindow>
+          </div>
+          <div className="mt-6">
+            <CodeWindow title="zero graph patch">
+              {PATCH_EXAMPLE}
             </CodeWindow>
           </div>
         </section>
 
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
-          <div className="mx-auto mb-12 max-w-[36rem] text-center">
+          <div className="mx-auto mb-12 max-w-[48rem] text-center">
             <p className="mb-2 text-[0.8125rem] font-semibold uppercase tracking-[0.04em] text-blue">Direction</p>
-            <h2 className="mb-4 text-[clamp(1.5rem,4vw,2.25rem)] font-bold leading-[1.15] tracking-[-0.035em]">Regularity over cleverness.</h2>
+            <h2 className="mb-4 text-[clamp(1.5rem,4vw,2.25rem)] font-bold leading-[1.15] tracking-[-0.035em]">Source as data. Graph as interface.</h2>
             <p className="m-0 leading-[1.65] text-muted">
-              zerolang favors explicit capabilities and standard-library APIs over
-              syntax for every convenience. Some code may be more verbose for
-              humans if that makes it easier for agents to generate, inspect,
-              and repair.
+              The language is still designed under systems constraints: token efficiency, low memory usage, fast startup, fast builds, low runtime latency, and zero dependencies. The graph work does not replace readable source; it gives agents a checked structure and a tighter write, validate, check, and format loop.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-2 lg:grid-cols-3">
@@ -145,10 +201,8 @@ export default function HomePage() {
 
         <section className="relative z-10 border-t border-border px-6 py-[clamp(5rem,12vh,8rem)] text-center">
           <h2 className="mb-3 text-[clamp(1.75rem,5vw,2.75rem)] font-bold leading-[1.1] tracking-[-0.04em]">Explore with us.</h2>
-          <p className="mx-auto mb-8 max-w-[32rem] text-[1.0625rem] leading-relaxed text-muted">
-            Install the compiler, run an example, and inspect what the experiment
-            can do today. The most useful feedback is what helps agents work
-            with less guesswork.
+          <p className="mx-auto mb-8 max-w-[36rem] text-[1.0625rem] leading-relaxed text-muted">
+            Install the compiler, run an example, inspect the graph, and test the edit loop. The most useful feedback is what helps agents work with less guessing.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <ButtonLink href="/getting-started" variant="primary" size="lg">
@@ -164,7 +218,7 @@ export default function HomePage() {
             <LogoIcon width="14" height="12" />
             <span>zerolang</span>
           </div>
-          <p className="m-0 text-[0.8125rem] text-muted">Agent-first language design, still under active exploration.</p>
+          <p className="m-0 text-[0.8125rem] text-muted">Experimental graph-first language design.</p>
         </div>
       </footer>
     </div>

@@ -31,33 +31,38 @@ Runnable today:
 ## Example
 
 ```zero
-type SliceView
-  bytes Span<u8>
-  values Span<i32>
+type SliceView {
+    bytes: Span<u8>,
+    values: Span<i32>,
+}
 
-pub fn main Void world World !
-  let bytes Span<u8> std.mem.span "zero-memory"
-  let same std.mem.span "zero-memory"
-  mut scratch [11]u8 [0_u8;11]
-  let copied std.mem.copy scratch bytes
-  mut ints [3]i32 [1, 2, 3]
-  let intSpan MutSpan<i32> ints
-  set intSpan[1] 20
-  let view SliceView . bytes bytes values intSpan
-  if && (&& (&& (&& (== copied 11) (== (std.mem.len view.bytes) 11)) (std.mem.eqlBytes view.bytes same)) (== (std.mem.len view.values) 3)) (std.mem.eqlBytes view.values intSpan)
-    check world.out.write "memory type forms runnable\n"
+pub fn main(world: World) -> Void raises {
+    let bytes: Span<u8> = std.mem.span("zero-memory")
+    let same: Span<u8> = std.mem.span("zero-memory")
+    var scratch: [11]u8 = [0_u8; 11]
+    let copied: usize = std.mem.copy(scratch, bytes)
+    var ints: [3]i32 = [1, 2, 3]
+    let intSpan: MutSpan<i32> = ints
+    intSpan[1] = 20
+    let view: SliceView = SliceView { bytes: bytes, values: intSpan }
+    if copied == 11 && std.mem.len(view.bytes) == 11 && std.mem.eqlBytes(view.bytes, same) && std.mem.len(view.values) == 3 && std.mem.eqlBytes(view.values, intSpan) {
+        check world.out.write("memory type forms runnable\n")
+    }
+}
 ```
 
 ## Allocator Example
 
 ```zero
-pub fn main Void world World !
-  mut storage [8]u8 [0, 0, 0, 0, 0, 0, 0, 0]
-  mut alloc FixedBufAlloc std.mem.fixedBufAlloc storage
-  let bytes std.mem.allocBytes alloc 4
-  if bytes.has
-    set bytes.value[0] 90
-    check world.out.write "fixed buffer allocated\n"
+pub fn main(world: World) -> Void raises {
+    var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0]
+    var alloc: FixedBufAlloc = std.mem.fixedBufAlloc(storage)
+    let bytes: Maybe<MutSpan<u8>> = std.mem.allocBytes(alloc, 4)
+    if bytes.has {
+        bytes.value[0] = 90
+        check world.out.write("fixed buffer allocated\n")
+    }
+}
 ```
 
 Effects: none beyond writes performed by caller code.
@@ -85,6 +90,9 @@ Target support: current compiler targets.
   hidden-global-allocator status.
 - `allocationInstrumentation`: pay-as-used hooks for attempts, successes, failures, requested bytes, granted bytes, and peak live bytes.
 - `collectionFacts`: fixed-capacity `Vec`, owned `ByteBuf`, and empty `Map`/`Set` metadata, including growth/failure/cleanup behavior.
+- `safetyFacts`: the selected profile plus the current bounds,
+  initialization, aliasing, lifetime, ownership, span, MIR, literal integer
+  range-check, runtime arithmetic, and unchecked-surface facts.
 
 All heap budgets are explicit. A program that only uses `std.mem` remains at
 `heapBytes: 0`, `globalHeapBytes: 0`, and `hiddenHeapAllocation: false` unless
