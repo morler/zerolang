@@ -556,7 +556,7 @@ for (const [code, goodExample, stalePattern] of [
   assert.doesNotMatch(
     `${explanation.repair.summary}\n${explanation.examples.bad}\n${explanation.examples.good}`,
     stalePattern,
-    `${code} explain examples should not use legacy row syntax`,
+    `${code} explain examples should use canonical source syntax`,
   );
 }
 
@@ -848,7 +848,7 @@ assert.equal(graphInspectJson.callResolution.schemaVersion, 1);
 const graphInspectOutJson = json(["graph", "inspect", "--json", "--out", graphInspectOutPath, "examples/hello.0"], { allowFailure: true });
 assert.notEqual(graphInspectOutJson.code, 0);
 assert.equal(graphInspectOutJson.body.diagnostics[0].message, "graph inspect does not support --out");
-assert.equal(graphInspectOutJson.body.diagnostics[0].expected, "zero graph inspect [--json] <file.0|file.row|project|zero.json>");
+assert.equal(graphInspectOutJson.body.diagnostics[0].expected, "zero graph inspect [--json] <file.0|project|zero.json>");
 const graphBareOutJson = json(["graph", "--json", "--out", graphBareOutPath, "examples/hello.0"], { allowFailure: true });
 assert.notEqual(graphBareOutJson.code, 0);
 assert.equal(graphBareOutJson.body.diagnostics[0].message, "graph requires an output-capable subcommand for --out");
@@ -865,12 +865,13 @@ const graphSourceTextOutJson = json(["graph", "dump", "--json", "--out", graphSo
 assert.notEqual(graphSourceTextOutJson.code, 0);
 assert.equal(graphSourceTextOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
 assert.equal(graphSourceTextOutJson.body.diagnostics[0].expected, "zero graph dump --out <program-graph-artifact> <input>");
-assert.equal(graphSourceTextOutJson.body.diagnostics[0].help, ".0 and .row files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
+assert.equal(graphSourceTextOutJson.body.diagnostics[0].help, ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
 assert.equal(existsSync(graphSourceTextOutPath), false);
 const graphSourceRowOutJson = json(["graph", "import", "--json", "--out", graphSourceRowOutPath, "examples/hello.0"], { allowFailure: true });
 assert.notEqual(graphSourceRowOutJson.code, 0);
 assert.equal(graphSourceRowOutJson.body.diagnostics[0].message, "program graph output must not use source text extension");
 assert.equal(graphSourceRowOutJson.body.diagnostics[0].expected, "zero graph dump --out <program-graph-artifact> <input>");
+assert.equal(graphSourceRowOutJson.body.diagnostics[0].help, ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
 assert.equal(existsSync(graphSourceRowOutPath), false);
 const graphValidateSourceTextOutJson = json(["graph", "validate", "--json", "--out", graphValidateSourceTextOutPath, graphDumpPath], { allowFailure: true });
 assert.notEqual(graphValidateSourceTextOutJson.code, 0);
@@ -2197,420 +2198,55 @@ assert.equal(parseTree.functions[0].name, "main");
 assert.equal(parseTree.functions[0].paramCount, 1);
 assert.deepEqual(parseTree.functions[0].bodyKinds, ["if", "while", "check", "return"]);
 
-const rowCommandFixture = join(outDir, "row_command.row");
-const rowCommandSource =
+const unsupportedSourceFixture = join(outDir, "unsupported-source.row");
+const unsupportedSourceText =
   "# command fixture\n" +
   "fn inc i32 value i32\n" +
   "  ret + value 1\n" +
   "\n" +
   "pub fn main Void\n" +
   "  let total i32 inc 41\n";
-writeFileSync(rowCommandFixture, rowCommandSource);
-assert.equal(zero(["fmt", rowCommandFixture]).stdout, rowCommandSource);
-assert.match(zero(["fmt", "--check", rowCommandFixture]).stdout, /fmt ok/);
-const rowTokens = json(["tokens", "--json", rowCommandFixture]).body;
-assert.equal(rowTokens.schemaVersion, 1);
-assert.equal(rowTokens.syntax, "row");
-assert.deepEqual(rowTokens.tokens.slice(0, 4).map((token) => `${token.kind}:${token.text}`), [
-  "comment:# command fixture",
-  "newline:",
-  "word:fn",
-  "word:inc",
-]);
-const rowParseTree = json(["parse", "--json", rowCommandFixture]).body;
-assert.equal(rowParseTree.schemaVersion, 1);
-assert.equal(rowParseTree.root.functionCount, 2);
-assert.deepEqual(rowParseTree.functions.map((fun) => fun.name), ["inc", "main"]);
-assert.deepEqual(rowParseTree.functions.map((fun) => fun.bodyKinds), [["return"], ["let"]]);
-const rowCheck = json(["check", "--json", rowCommandFixture]).body;
-assert.equal(rowCheck.ok, true);
-assert.equal(rowCheck.sourceFile, rowCommandFixture);
-assert(rowCheck.interfaceFingerprints.modules.some((module) => module.name === "row_command" && module.publicSymbols.some((symbol) => symbol.name === "main")));
-const rowGraph = json(["graph", "--json", rowCommandFixture]).body;
-assert.equal(rowGraph.schemaVersion, 1);
-assert.equal(rowGraph.sourceFile, rowCommandFixture);
-assert(rowGraph.sourceFiles.includes(rowCommandFixture));
-assert(rowGraph.symbols.some((symbol) => symbol.name === "inc" && symbol.kind === "function"));
-assert(rowGraph.functions.some((fun) => fun.name === "main"));
+rmSync(unsupportedSourceFixture, { force: true });
+writeFileSync(unsupportedSourceFixture, unsupportedSourceText);
+for (const args of [
+  ["check", "--json", unsupportedSourceFixture],
+  ["tokens", "--json", unsupportedSourceFixture],
+  ["parse", "--json", unsupportedSourceFixture],
+  ["build", "--json", unsupportedSourceFixture],
+  ["graph", "check", "--json", unsupportedSourceFixture],
+  ["graph", "view", "--json", unsupportedSourceFixture],
+] as string[][]) {
+  const rejected = json(args, { allowFailure: true });
+  assert.notEqual(rejected.code, 0);
+  assert.equal(rejected.body.diagnostics[0].code, "BLD002");
+  assert.equal(rejected.body.diagnostics[0].message, "expected Zero source file or package");
+  assert.equal(rejected.body.diagnostics[0].expected, ".0 source file, zero.json, or package directory");
+}
+const unsupportedFmtRejected = zero(["fmt", "--check", unsupportedSourceFixture], { allowFailure: true });
+assert.notEqual(unsupportedFmtRejected.code, 0);
+assert.match(unsupportedFmtRejected.stderr, /expected Zero source file or package/);
+assert.match(unsupportedFmtRejected.stderr, /\.0 source file, zero\.json, or package directory/);
 
-const rowTestFixture = join(outDir, "row_test_command.row");
+const unsupportedSourcePackage = join(outDir, "unsupported-source-package");
+rmSync(unsupportedSourcePackage, { recursive: true, force: true });
+mkdirSync(join(unsupportedSourcePackage, "src"), { recursive: true });
 writeFileSync(
-  rowTestFixture,
-  "fn add i32 left i32 right i32\n" +
-    "  ret + left right\n" +
-    "\n" +
-    "test \"row addition\"\n" +
-    "  expect == (add 20 22) 42\n" +
-    "\n" +
-    "test \"xfail: row pending\"\n" +
-    "  expect false\n" +
-    "\n" +
-    "pub fn main Void\n",
-);
-const rowTestJson = json(["test", "--json", rowTestFixture]).body;
-assert.equal(rowTestJson.ok, true);
-assert.equal(rowTestJson.testBackend, "direct-frontend");
-assert.equal(rowTestJson.discoveredTests, 2);
-assert.equal(rowTestJson.expectedFailures, 1);
-assert(rowTestJson.results.some((result) => result.name === "row addition" && result.status === "passed"));
-assert(rowTestJson.results.some((result) => result.name === "xfail: row pending" && result.status === "expected-fail"));
-const rowTestSizePath = join(outDir, "row-test-sized");
-rmSync(rowTestSizePath, { force: true });
-const rowTestSize = json(["size", "--json", "--target", "linux-musl-x64", rowTestFixture, "--out", rowTestSizePath]).body;
-assert.equal(rowTestSize.sourceFile, rowTestFixture);
-assert.equal(rowTestSize.generatedCBytes, 0);
-assert(rowTestSize.retentionReasons.some((item) => item.name === "row addition" && item.reason === "zero test discovery"));
-const rowTestDev = json(["dev", "--json", "--trace", rowTestFixture]).body;
-assert.equal(rowTestDev.trace.requested, true);
-assert(rowTestDev.watch.files.includes(rowTestFixture));
-assert.equal(rowTestDev.affected.tests, 2);
-
-const rowHelperFixture = join(outDir, "row_helper.row");
-writeFileSync(
-  rowHelperFixture,
-  "pub fn double i32 value i32\n" +
-    "  ret + value value\n",
-);
-const rowImportFixture = join(outDir, "row_import_main.row");
-writeFileSync(
-  rowImportFixture,
-  "use row_helper\n" +
-    "pub fn main Void\n" +
-    "  let total i32 double 21\n",
-);
-const rowImportCheck = json(["check", "--json", rowImportFixture]).body;
-assert.equal(rowImportCheck.ok, true);
-assert(rowImportCheck.incrementalInvalidation.changedInputs.sourceFiles.includes(rowHelperFixture));
-const rowImportGraph = json(["graph", "--json", rowImportFixture]).body;
-assert(rowImportGraph.sourceFiles.includes(rowImportFixture));
-assert(rowImportGraph.sourceFiles.includes(rowHelperFixture));
-assert(rowImportGraph.imports.includes("row_helper"));
-assert(rowImportGraph.importEdges.some((edge) => edge.from === "row_import_main" && edge.to === "row_helper" && edge.path === rowHelperFixture));
-assert(rowImportGraph.functions.some((fun) => fun.name === "double"));
-
-const rowPackage = join(outDir, "row-package");
-mkdirSync(join(rowPackage, "src"), { recursive: true });
-writeFileSync(
-  join(rowPackage, "zero.json"),
+  join(unsupportedSourcePackage, "zero.json"),
   JSON.stringify(
     {
-      package: { name: "row-package", version: "0.1.0" },
+      package: { name: "unsupported-source-package", version: "0.1.0" },
       targets: { cli: { kind: "exe", main: "src/main.row" } },
     },
     null,
     2,
   ) + "\n",
 );
-const rowPackageMain = join(rowPackage, "src", "main.row");
-const rowPackageHelper = join(rowPackage, "src", "helper.row");
-writeFileSync(
-  rowPackageHelper,
-  "pub fn double i32 value i32\n" +
-    "  ret + value value\n",
-);
-writeFileSync(
-  rowPackageMain,
-  "use helper\n" +
-    "test \"package helper\"\n" +
-    "  expect == (double 21) 42\n" +
-    "pub fn main Void\n" +
-    "  let total i32 double 21\n",
-);
-assert.match(zero(["fmt", "--check", rowPackage]).stdout, /fmt ok/);
-const rowPackageTokens = json(["tokens", "--json", rowPackage]).body;
-assert.equal(rowPackageTokens.syntax, "row");
-assert.equal(rowPackageTokens.sourceFile, rowPackageMain);
-const rowPackageParse = json(["parse", "--json", rowPackage]).body;
-assert.equal(rowPackageParse.root.functionCount, 3);
-assert(rowPackageParse.functions.some((fun) => fun.name === "double"));
-const rowPackageCheck = json(["check", "--json", rowPackage]).body;
-assert.equal(rowPackageCheck.ok, true);
-assert.equal(rowPackageCheck.package.name, "row-package");
-assert(rowPackageCheck.incrementalInvalidation.changedInputs.sourceFiles.includes(rowPackageHelper));
-const rowPackageGraph = json(["graph", "--json", rowPackage]).body;
-assert(rowPackageGraph.sourceFiles.includes(rowPackageMain));
-assert(rowPackageGraph.sourceFiles.includes(rowPackageHelper));
-assert(rowPackageGraph.importEdges.some((edge) => edge.from === "main" && edge.to === "helper" && edge.path === rowPackageHelper));
-assert(rowPackageGraph.functions.some((fun) => fun.name === "double"));
-const rowPackageTest = json(["test", "--json", rowPackage]).body;
-assert.equal(rowPackageTest.ok, true);
-assert.equal(rowPackageTest.testDiscovery.mode, "package");
-assert.equal(rowPackageTest.discoveredTests, 1);
-assert(rowPackageTest.fixtures.sourceFiles.includes(rowPackageHelper));
-assert.equal(rowPackageTest.results[0].status, "passed");
-
-const rowArtifactDir = join(outDir, "row-artifact");
-const currentArtifactDir = join(outDir, "current-artifact");
-rmSync(rowArtifactDir, { recursive: true, force: true });
-rmSync(currentArtifactDir, { recursive: true, force: true });
-mkdirSync(rowArtifactDir, { recursive: true });
-mkdirSync(currentArtifactDir, { recursive: true });
-const rowArtifactMain = join(rowArtifactDir, "main.row");
-const rowArtifactHelper = join(rowArtifactDir, "helper.row");
-const currentArtifactMain = join(currentArtifactDir, "main.0");
-const currentArtifactHelper = join(currentArtifactDir, "helper.0");
-writeFileSync(
-  rowArtifactHelper,
-  "pub fn plusOne i32 value i32\n" +
-    "  ret + value 1\n",
-);
-writeFileSync(
-  rowArtifactMain,
-  "use helper\n" +
-    "export c fn main i32\n" +
-    "  ret plusOne 41\n",
-);
-writeFileSync(
-  currentArtifactHelper,
-  "pub fn plusOne(value: i32) -> i32 {\n" +
-    "    return value + 1\n" +
-    "}\n",
-);
-writeFileSync(
-  currentArtifactMain,
-  "use helper\n" +
-    "export c fn main() -> i32 {\n" +
-    "    return plusOne(41)\n" +
-    "}\n",
-);
-const rowArtifactGraph = json(["graph", "--json", rowArtifactMain]).body;
-const currentArtifactGraph = json(["graph", "--json", currentArtifactMain]).body;
-const functionSummary = (fun) => ({
-  name: fun.name,
-  public: fun.public,
-  params: fun.params,
-  returnType: fun.returnType,
-  raises: fun.raises,
-});
-const publicSymbolSummary = (symbol) => ({
-  name: symbol.name,
-  kind: symbol.kind,
-  public: symbol.public,
-});
-assert.deepEqual(rowArtifactGraph.functions.map(functionSummary), currentArtifactGraph.functions.map(functionSummary));
-assert.deepEqual(
-  rowArtifactGraph.symbols.filter((symbol) => symbol.public).map(publicSymbolSummary),
-  currentArtifactGraph.symbols.filter((symbol) => symbol.public).map(publicSymbolSummary),
-);
-assert.deepEqual(rowArtifactGraph.imports, ["helper"]);
-assert.deepEqual(currentArtifactGraph.imports, ["helper"]);
-assert(rowArtifactGraph.sourceFiles.includes(rowArtifactMain));
-assert(rowArtifactGraph.sourceFiles.includes(rowArtifactHelper));
-assert.equal(rowArtifactGraph.sourceFiles.length, currentArtifactGraph.sourceFiles.length);
-
-const rowArtifactBuildOut = join(outDir, "row-artifact-build");
-rmSync(rowArtifactBuildOut, { force: true });
-const rowArtifactBuild = json(["build", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowArtifactBuildOut]).body;
-assert.equal(rowArtifactBuild.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactBuild.generatedCBytes, 0);
-assert.equal(rowArtifactBuild.cBridgeFallback ?? false, false);
-assert.equal(rowArtifactBuild.objectBackend.objectEmission.path, "direct-elf64-exe");
-assert.equal(rowArtifactBuild.objectBackend.linking.externalToolchain, "none");
-assert.equal(rowArtifactBuild.objectBackend.directFacts.functionCount, 2);
-assert(rowArtifactBuild.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactHelper));
-assert(rowArtifactBuild.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactMain));
-assertReleaseTargetContract(rowArtifactBuild, {
-  target: "linux-musl-x64",
-  emit: "exe",
-  objectFormat: "elf",
-  artifactKind: "native-executable",
-  linkerFlavor: "elf64",
-  targetLibcMode: "bundled-libc",
-});
-repeatBuildHash(
-  ["build", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowArtifactBuildOut],
-  rowArtifactBuildOut,
-  `${rowArtifactBuildOut}.repeat`,
-);
-
-const rowArtifactObjOut = join(outDir, "row-artifact.o");
-rmSync(rowArtifactObjOut, { force: true });
-const rowArtifactObj = json(["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowArtifactObjOut]).body;
-const rowArtifactObjBytes = readFileSync(rowArtifactObjOut);
-assert.equal(rowArtifactObj.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactObj.emit, "obj");
-assert.equal(rowArtifactObj.generatedCBytes, 0);
-assert.equal(rowArtifactObj.objectBackend.objectEmission.path, "direct-elf64-object");
-assert.equal(rowArtifactObj.objectBackend.linking.externalToolchain, "none");
-assert.equal(rowArtifactObjBytes[0], 0x7f);
-assert.equal(rowArtifactObjBytes[1], 0x45);
-assert.equal(rowArtifactObjBytes[2], 0x4c);
-assert.equal(rowArtifactObjBytes[3], 0x46);
-
-const rowRunArtifactOut = join(outDir, "row-run-artifact");
-rmSync(rowRunArtifactOut, { force: true });
-rmSync(`${rowRunArtifactOut}.exe`, { force: true });
-rmSync(`${rowRunArtifactOut}.c`, { force: true });
-const rowRunResult = zero(["run", "--out", rowRunArtifactOut, rowArtifactMain], { allowFailure: true });
-assert.equal(rowRunResult.code, 42);
-assert.equal(rowRunResult.stdout, "");
-assert(existsSync(version.host.startsWith("win32") ? `${rowRunArtifactOut}.exe` : rowRunArtifactOut));
-assert.equal(existsSync(`${rowRunArtifactOut}.c`), false);
-
-const rowShipOut = join(outDir, "row-ship-artifact");
-const firstRowShip = json(["ship", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowShipOut]).body;
-assert.equal(firstRowShip.sourceFile, rowArtifactMain);
-assertShipReport(firstRowShip, rowShipOut);
-const secondRowShip = json(["ship", "--json", "--target", "linux-musl-x64", rowArtifactMain, "--out", rowShipOut]).body;
-assertShipReport(secondRowShip, rowShipOut);
-assert.equal(secondRowShip.checksum.value, firstRowShip.checksum.value);
-assert.equal(secondRowShip.artifactBytes, firstRowShip.artifactBytes);
-
-const rowArtifactMem = json(["mem", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactMem.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactMem.generatedCBytes, 0);
-assert.equal(rowArtifactMem.cBridgeFallback, false);
-assert.equal(rowArtifactMem.directFacts.functionCount, 2);
-assert.equal(rowArtifactMem.memory.hiddenHeapAllocation, false);
-assert(rowArtifactMem.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactHelper));
-const rowArtifactTime = json(["time", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactTime.sourceFile, rowArtifactMain);
-assert.equal(rowArtifactTime.generatedCBytes, 0);
-assert.equal(rowArtifactTime.cBridgeFallback, false);
-assert(rowArtifactTime.compilerPhases.some((phase) => phase.name === "parse"));
-assert(rowArtifactTime.compilerPhases.some((phase) => phase.name === "link"));
-assert(rowArtifactTime.incrementalInvalidation.changedInputs.sourceFiles.includes(rowArtifactHelper));
-const rowArtifactAbiDump = json(["abi", "dump", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactAbiDump.sourceFile, rowArtifactMain);
-assert(rowArtifactAbiDump.cExports.some((item) => item.name === "main" && item.cReturnType === "int32_t"));
-assert.match(rowArtifactAbiDump.generatedHeader.text, /int32_t main\(void\);/);
-const rowArtifactAbiCheck = json(["abi", "check", "--json", rowArtifactMain]).body;
-assert.equal(rowArtifactAbiCheck.ok, true);
-assert.equal(rowArtifactAbiCheck.sourceFile, rowArtifactMain);
-assert.deepEqual(rowArtifactAbiCheck.diagnostics, []);
-
-const rowMissingMainPackage = join(outDir, "row-missing-main-package");
-mkdirSync(join(rowMissingMainPackage, "src"), { recursive: true });
-writeFileSync(
-  join(rowMissingMainPackage, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "row-missing-main-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/missing.row" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
-const rowMissingMainCheck = json(["check", "--json", rowMissingMainPackage], { allowFailure: true });
-assert.notEqual(rowMissingMainCheck.code, 0);
-assert.equal(rowMissingMainCheck.body.diagnostics[0].code, "BLD002");
-assert.match(rowMissingMainCheck.body.diagnostics[0].message, /target main source does not exist/);
-
-const rowDependencyLib = join(outDir, "row-dependency-lib");
-mkdirSync(join(rowDependencyLib, "src"), { recursive: true });
-writeFileSync(
-  join(rowDependencyLib, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "row-dependency-lib", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.row" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
-writeFileSync(join(rowDependencyLib, "src", "main.row"), "pub fn main Void\n");
-
-const rowDependencyPackage = join(outDir, "row-dependency-package");
-mkdirSync(join(rowDependencyPackage, "src"), { recursive: true });
-writeFileSync(
-  join(rowDependencyPackage, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "row-dependency-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.row" } },
-      dependencies: { helper: { path: "../row-dependency-lib", version: "0.1.0" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
-writeFileSync(join(rowDependencyPackage, "src", "main.row"), "pub fn main Void\n");
-const rowDependencyCheck = json(["check", "--json", rowDependencyPackage]).body;
-assert.equal(rowDependencyCheck.ok, true);
-assert(rowDependencyCheck.package.dependencies.some((dep) => dep.name === "helper" && dep.resolvedName === "row-dependency-lib" && dep.status === "path-resolved"));
-assert(rowDependencyCheck.package.lockfile.generated);
-
-const rowMalformedImportFixture = join(outDir, "row_malformed_import.row");
-writeFileSync(
-  rowMalformedImportFixture,
-  "use row helper\n" +
-    "pub fn main Void\n",
-);
-const rowMalformedImportCheck = json(["check", "--json", rowMalformedImportFixture], { allowFailure: true });
-assert.notEqual(rowMalformedImportCheck.code, 0);
-assert.equal(rowMalformedImportCheck.body.diagnostics[0].code, "PAR100");
-assert.match(rowMalformedImportCheck.body.diagnostics[0].message, /expected '\.' between import module segments/);
-
-const rowTypeMismatchFixture = join(outDir, "row_type_mismatch.row");
-writeFileSync(
-  rowTypeMismatchFixture,
-  "pub fn main Void\n" +
-    "  let value i32 \"nope\"\n",
-);
-const rowFixPlan = json(["fix", "--plan", "--json", rowTypeMismatchFixture]).body;
-assert.equal(rowFixPlan.ok, false);
-assert.equal(rowFixPlan.mode, "plan");
-assert.equal(rowFixPlan.diagnostics[0].code, "TYP002");
-assert.equal(rowFixPlan.diagnostics[0].path, rowTypeMismatchFixture);
-assert.equal(rowFixPlan.diagnostics[0].line, 2);
-assert.equal(rowFixPlan.fixes[0].diagnosticCode, "TYP002");
-
-const rowCycleAFixture = join(outDir, "row_cycle_a.row");
-const rowCycleBFixture = join(outDir, "row_cycle_b.row");
-writeFileSync(
-  rowCycleAFixture,
-  "use row_cycle_b\n" +
-    "pub fn a Void\n",
-);
-writeFileSync(
-  rowCycleBFixture,
-  "use row_cycle_a\n" +
-    "pub fn b Void\n",
-);
-const rowCycleCheck = json(["check", "--json", rowCycleAFixture], { allowFailure: true });
-assert.notEqual(rowCycleCheck.code, 0);
-assert.equal(rowCycleCheck.body.diagnostics[0].code, "IMP002");
-assert.equal(rowCycleCheck.body.diagnostics[0].path, rowCycleBFixture);
-assert.equal(rowCycleCheck.body.diagnostics[0].actual, "row_cycle_a -> row_cycle_b -> row_cycle_a");
-
-const rowDupMainFixture = join(outDir, "row_dup_main.row");
-const rowDupAFixture = join(outDir, "row_dup_a.row");
-const rowDupBFixture = join(outDir, "row_dup_b.row");
-writeFileSync(
-  rowDupMainFixture,
-  "use row_dup_a\n" +
-    "use row_dup_b\n" +
-    "pub fn main Void\n",
-);
-writeFileSync(rowDupAFixture, "pub fn shared Void\n");
-writeFileSync(rowDupBFixture, "pub fn shared Void\n");
-const rowDuplicatePublicCheck = json(["check", "--json", rowDupMainFixture], { allowFailure: true });
-assert.notEqual(rowDuplicatePublicCheck.code, 0);
-assert.equal(rowDuplicatePublicCheck.body.diagnostics[0].code, "IMP003");
-assert.match(rowDuplicatePublicCheck.body.diagnostics[0].message, /duplicate public symbol 'shared'/);
-assert.match(rowDuplicatePublicCheck.body.diagnostics[0].actual, /shared also exported by row_dup_a/);
-
-const rowMetadataFixture = join(outDir, "row_metadata.row");
-const rowMetadataSource =
-  "pub enum Mode\n" +
-  "  auto\n" +
-  "  manual\n" +
-  "pub choice Result\n" +
-  "  ok i32\n" +
-  "  err String\n" +
-  "test \"metadata\"\n" +
-  "  let total i32 + 1 1\n" +
-  "pub fn main Void\n";
-writeFileSync(rowMetadataFixture, rowMetadataSource);
-const rowMetadataGraph = json(["graph", "--json", rowMetadataFixture]).body;
-assert(rowMetadataGraph.symbols.some((symbol) => symbol.name === "Mode" && symbol.kind === "enum" && symbol.public === true));
-assert(rowMetadataGraph.symbols.some((symbol) => symbol.name === "Result" && symbol.kind === "choice" && symbol.public === true));
-assert(!rowMetadataGraph.symbols.some((symbol) => symbol.name.startsWith("__zero_test_")));
-const rowMetadataDoc = json(["doc", "--json", rowMetadataFixture]).body;
-assert(rowMetadataDoc.symbols.some((symbol) => symbol.name === "Mode" && symbol.kind === "enum"));
-assert(rowMetadataDoc.symbols.some((symbol) => symbol.name === "Result" && symbol.kind === "choice"));
+writeFileSync(join(unsupportedSourcePackage, "src", "main.row"), unsupportedSourceText);
+const unsupportedPackageRejected = json(["check", "--json", unsupportedSourcePackage], { allowFailure: true });
+assert.notEqual(unsupportedPackageRejected.code, 0);
+assert.equal(unsupportedPackageRejected.body.diagnostics[0].code, "BLD002");
+assert.equal(unsupportedPackageRejected.body.diagnostics[0].message, "target main source must use canonical Zero source");
+assert.equal(unsupportedPackageRejected.body.diagnostics[0].expected, ".0 source file");
 
 const testJson = json(["test", "--json", "--filter", "addition", "conformance/native/pass/test-blocks.0"]).body;
 assert.equal(testJson.schemaVersion, 1);

@@ -3362,28 +3362,28 @@ static void print_help(void) {
   printf("  zero --version [--json]\n");
   printf("  zero skills [list|get] [--json]\n");
   printf("  zero new cli|lib|package <name>\n");
-  printf("  zero check <file.0|file.row|project|zero.json>\n");
-  printf("  zero test <file.0|file.row|project|zero.json>\n");
-  printf("  zero fmt <file.0|file.row|project|zero.json>\n");
-  printf("  zero build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero run [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|file.row|project|zero.json> [-- args...]\n");
-  printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
+  printf("  zero check <file.0|project|zero.json>\n");
+  printf("  zero test <file.0|project|zero.json>\n");
+  printf("  zero fmt <file.0|project|zero.json>\n");
+  printf("  zero build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|project|zero.json>\n");
+  printf("  zero run [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|project|zero.json> [-- args...]\n");
+  printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|project|zero.json>\n");
+  printf("  zero tokens --json <file.0|project|zero.json>\n");
+  printf("  zero parse --json <file.0|project|zero.json>\n");
   printf("  zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <input> [patch]\n");
   printf("  zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-artifact> <input>\n");
   printf("  zero graph view [--json] [--out <file.0>] <program-graph-or-source>\n");
   printf("  zero graph size [--json] [--target <target>] --out <artifact> <program-graph-or-package>\n");
   printf("  zero graph patch [--json] [--out <program-graph-artifact>] <program-graph-or-source> (<patch-file>|--op <operation>)\n");
   printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]\n  zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>\n");
-  printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
-  printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero dev [--json] [--trace] <file.0|file.row|project|zero.json>\n");
-  printf("  zero time --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
+  printf("  zero doc [--json] <file.0|project|zero.json>\n");
+  printf("  zero size [--json] [--out <artifact>] <file.0|project|zero.json>\n");
+  printf("  zero mem [--json] [--target <target>] <file.0|project|zero.json>\n");
+  printf("  zero dev [--json] [--trace] <file.0|project|zero.json>\n");
+  printf("  zero time --json <file.0|project|zero.json>\n");
+  printf("  zero abi check|dump [--json] [--target <target>] <file.0|project|zero.json>\n");
   printf("  zero explain [--json] <code>\n");
-  printf("  zero fix --plan --json <file.0|file.row|project|zero.json>\n");
+  printf("  zero fix --plan --json <file.0|project|zero.json>\n");
   printf("  zero doctor [--json]\n");
   printf("  zero clean [--all]\n");
   printf("  zero targets\n");
@@ -3420,7 +3420,7 @@ static void print_command_help(const char *command) {
     printf("Flags:\n");
     printf("  --all    remove broader .zero generated state while preserving .zero/bin\n");
   } else if (strcmp(command, "check") == 0) {
-    printf("Usage: zero check [--json] [--target <target>] [--emit exe|obj] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero check [--json] [--target <target>] [--emit exe|obj] <file.0|project|zero.json>\n\n");
     printf("Parse and typecheck Zero source without emitting artifacts. JSON output includes target readiness for the selected emit kind.\n");
   } else if (strcmp(command, "build") == 0) {
     printf("Usage: zero build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <input>\n\n");
@@ -3435,22 +3435,22 @@ static void print_command_help(const char *command) {
     printf("Produce a deterministic release preview with a direct binary, stripped binary copy, checksum, archive manifest, debug-symbol metadata, size report, and SBOM placeholder.\n\n");
     printf("Example: zero ship --target linux-musl-x64 examples/hello.0 --out .zero/ship/hello\n");
   } else if (strcmp(command, "test") == 0) {
-    printf("Usage: zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <file.0|project|zero.json>\n\n");
     printf("Build and run inline `test` blocks.\n");
   } else if (strcmp(command, "fmt") == 0) {
-    printf("Usage: zero fmt [--check] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero fmt [--check] <file.0|project|zero.json>\n\n");
     printf("Print deterministic bootstrap formatting for Zero source.\n");
   } else if (strcmp(command, "targets") == 0) {
     printf("Usage: zero targets\n\n");
     printf("Print supported target facts as JSON.\n");
   } else if (strcmp(command, "tokens") == 0) {
-    printf("Usage: zero tokens --json <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero tokens --json <file.0|project|zero.json>\n\n");
     printf("Emit source token JSON for oracle comparisons.\n");
   } else if (strcmp(command, "parse") == 0) {
-    printf("Usage: zero parse --json <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero parse --json <file.0|project|zero.json>\n\n");
     printf("Emit normalized source parse JSON for oracle comparisons.\n");
   } else if (strcmp(command, "abi") == 0) {
-    printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|project|zero.json>\n\n");
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
     printf("Usage: zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] <input> [patch]\n\n");
@@ -3472,25 +3472,25 @@ static void print_command_help(const char *command) {
     printf("  patch     apply checked edits to ProgramGraph input\n");
     printf("  roundtrip compare graph semantics after direct ProgramGraph lowering\n");
   } else if (strcmp(command, "doc") == 0) {
-    printf("Usage: zero doc [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero doc [--json] [--target <target>] <file.0|project|zero.json>\n\n");
     printf("Emit package API documentation facts without emitting artifacts.\n");
   } else if (strcmp(command, "size") == 0) {
-    printf("Usage: zero size [--json] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <artifact>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero size [--json] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <artifact>] <file.0|project|zero.json>\n\n");
     printf("Report direct IR size, optional artifact bytes, capabilities, and stdlib helper metadata.\n");
   } else if (strcmp(command, "mem") == 0) {
-    printf("Usage: zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero mem [--json] [--target <target>] <file.0|project|zero.json>\n\n");
     printf("Report direct stack, static, heap, buffer, and runtime memory facts.\n");
   } else if (strcmp(command, "dev") == 0) {
-    printf("Usage: zero dev [--json] [--trace] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero dev [--json] [--trace] [--target <target>] <file.0|project|zero.json>\n\n");
     printf("Emit a direct incremental watch plan, interface fingerprints, and affected-test summary.\n");
   } else if (strcmp(command, "time") == 0) {
-    printf("Usage: zero time --json [--target <target>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero time --json [--target <target>] <file.0|project|zero.json>\n\n");
     printf("Emit compiler phase, cache, and invalidation timing facts.\n");
   } else if (strcmp(command, "explain") == 0) {
     printf("Usage: zero explain [--json] <diagnostic-code>\n\n");
     printf("Explain a diagnostic and its repair metadata.\n");
   } else if (strcmp(command, "fix") == 0) {
-    printf("Usage: zero fix (--plan|--patch|--apply) --json [--target <target>] <file.0|file.row|project|zero.json>\n\n");
+    printf("Usage: zero fix (--plan|--patch|--apply) --json [--target <target>] <file.0|project|zero.json>\n\n");
     printf("Print repair plans, reviewable patches, or apply behavior-preserving edits.\n");
   } else if (strcmp(command, "version") == 0 || strcmp(command, "--version") == 0) {
     printf("Usage: zero --version [--json]\n\n");
@@ -3721,8 +3721,8 @@ static void direct_row_append_source(SourceInput *input, ZBuf *combined, const c
 
 typedef struct { const char *path; const char *source; } DirectSourceReplacement;
 
-static bool is_row_source_path(const char *path) {
-  return path && (has_suffix(path, ".0") || has_suffix(path, ".row"));
+static bool is_zero_source_path(const char *path) {
+  return path && has_suffix(path, ".0");
 }
 
 static bool path_has_program_graph_storage_header(const char *path) {
@@ -3906,21 +3906,6 @@ static bool direct_input_push_symbol(SourceInput *input, const char *module, con
   return true;
 }
 
-static bool direct_row_token_text(const ZRowTokenVec *tokens, size_t index, const char *text) {
-  return tokens && index < tokens->len && tokens->items[index].text && strcmp(tokens->items[index].text, text) == 0;
-}
-
-static const char *direct_row_symbol_kind(const ZRowTokenVec *tokens, size_t index) {
-  if (direct_row_token_text(tokens, index, "alias")) return "type-alias";
-  if (direct_row_token_text(tokens, index, "const")) return "const";
-  if (direct_row_token_text(tokens, index, "fn")) return "function";
-  if (direct_row_token_text(tokens, index, "interface")) return "interface";
-  if (direct_row_token_text(tokens, index, "type")) return "shape";
-  if (direct_row_token_text(tokens, index, "enum")) return "enum";
-  if (direct_row_token_text(tokens, index, "choice")) return "choice";
-  return NULL;
-}
-
 static bool direct_row_reserved_internal_symbol(const char *name) {
   return name && strncmp(name, "__zero_", strlen("__zero_")) == 0;
 }
@@ -3952,46 +3937,6 @@ static bool direct_row_is_embedded_std_source_file(const char *path, const char 
     if (ok) return true;
   }
   return false;
-}
-
-static bool direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec *tokens, const ZRowTree *tree, const char *module, bool allow_internal_names, ZDiag *diag) {
-  for (size_t i = 0; input && tokens && tree && i < tree->len; i++) {
-    const ZRowNode *node = &tree->items[i];
-    if (node->parent != Z_ROW_NO_PARENT) continue;
-    size_t pos = node->first_token;
-    size_t end = node->first_token + node->token_count;
-    bool is_public = false;
-    if (direct_row_token_text(tokens, pos, "pub")) {
-      is_public = true;
-      pos++;
-    }
-    if (direct_row_token_text(tokens, pos, "export")) {
-      pos++;
-      if (direct_row_token_text(tokens, pos, "c")) pos++;
-    }
-    if (direct_row_token_text(tokens, pos, "extern") || direct_row_token_text(tokens, pos, "packed")) {
-      pos++;
-      if (direct_row_token_text(tokens, pos, "c")) continue;
-    }
-    if (direct_row_token_text(tokens, pos, "test")) continue;
-    const char *kind = direct_row_symbol_kind(tokens, pos);
-    if (!kind) continue;
-    size_t name_index = pos + 1;
-    if (name_index >= end || tokens->items[name_index].kind != Z_ROW_TOKEN_WORD) continue;
-    if (!allow_internal_names && direct_row_reserved_internal_symbol(tokens->items[name_index].text)) {
-      diag->code = 3008;
-      diag->line = tokens->items[name_index].line;
-      diag->column = tokens->items[name_index].column;
-      diag->length = tokens->items[name_index].length > 0 ? (int)tokens->items[name_index].length : 1;
-      snprintf(diag->message, sizeof(diag->message), "reserved compiler-internal symbol name");
-      snprintf(diag->expected, sizeof(diag->expected), "top-level %s name without the __zero_ prefix", kind);
-      snprintf(diag->actual, sizeof(diag->actual), "%s", tokens->items[name_index].text);
-      snprintf(diag->help, sizeof(diag->help), "rename the symbol; __zero_ names are reserved for compiler-provided helpers");
-      return false;
-    }
-    if (!direct_input_push_symbol(input, module, kind, tokens->items[name_index].text, is_public, diag)) return false;
-  }
-  return !diag || diag->code == 0;
 }
 
 static bool direct_input_add_program_symbol(SourceInput *input, const char *module, const char *kind, const char *name, bool is_public, bool allow_internal_names, int line, int column, ZDiag *diag) {
@@ -4174,13 +4119,6 @@ static bool parse_row_source_text(const char *source, Program *program, ZDiag *d
   return diag->code == 0;
 }
 
-static char *direct_row_join_module(const ZRowTokenVec *tokens, size_t start, size_t end) {
-  ZBuf buf;
-  zbuf_init(&buf);
-  for (size_t i = start; tokens && i < end && i < tokens->len; i++) zbuf_append(&buf, tokens->items[i].text);
-  return buf.data ? buf.data : z_strdup("");
-}
-
 static bool direct_row_reserved_word(const char *text) {
   const char *keywords[] = {
     "as", "break", "check", "choice", "const", "continue", "defer", "else", "enum", "export", "extern", "false",
@@ -4192,115 +4130,6 @@ static bool direct_row_reserved_word(const char *text) {
     if (text && strcmp(text, keywords[i]) == 0) return true;
   }
   return false;
-}
-
-static void direct_row_parse_diag(ZDiag *diag, const ZRowToken *token, const char *message, const char *expected) {
-  diag->code = 100;
-  diag->line = token ? token->line : 1;
-  diag->column = token ? token->column : 1;
-  diag->length = token && token->length > 0 ? (int)token->length : 1;
-  snprintf(diag->message, sizeof(diag->message), "%s", message ? message : "row syntax error");
-  snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "");
-}
-
-static bool direct_row_validate_use(const ZRowTokenVec *tokens, size_t module_start, size_t module_end, size_t row_end, ZDiag *diag) {
-  if (module_start >= module_end) {
-    const ZRowToken *token = tokens && module_start < tokens->len ? &tokens->items[module_start] : (tokens && module_start > 0 ? &tokens->items[module_start - 1] : NULL);
-    direct_row_parse_diag(diag, token, "expected import module name", "import module name");
-    return false;
-  }
-
-  bool expect_segment = true;
-  for (size_t i = module_start; tokens && i < module_end; i++) {
-    const ZRowToken *token = &tokens->items[i];
-    if (expect_segment) {
-      if (token->kind != Z_ROW_TOKEN_WORD || direct_row_reserved_word(token->text)) {
-        direct_row_parse_diag(diag,
-                              token,
-                              i == module_start ? "expected import module name" : "expected import module segment",
-                              i == module_start ? "import module name" : "import module segment");
-        return false;
-      }
-      expect_segment = false;
-      continue;
-    }
-    if (!direct_row_token_text(tokens, i, ".")) {
-      direct_row_parse_diag(diag, token, "expected '.' between import module segments", "'.' or import alias");
-      return false;
-    }
-    expect_segment = true;
-  }
-
-  if (expect_segment) {
-    const ZRowToken *token = tokens && module_end > 0 ? &tokens->items[module_end - 1] : NULL;
-    direct_row_parse_diag(diag, token, "expected import module segment", "import module segment");
-    return false;
-  }
-
-  if (direct_row_token_text(tokens, module_end, "as")) {
-    size_t alias_pos = module_end + 1;
-    const ZRowToken *alias = tokens && alias_pos < row_end ? &tokens->items[alias_pos] : (tokens && module_end < tokens->len ? &tokens->items[module_end] : NULL);
-    if (!alias || alias->kind != Z_ROW_TOKEN_WORD) {
-      direct_row_parse_diag(diag, alias, "expected import alias", "identifier");
-      return false;
-    }
-    if (direct_row_reserved_word(alias->text)) {
-      direct_row_parse_diag(diag, alias, "reserved word cannot be used as an identifier", "identifier");
-      snprintf(diag->help, sizeof(diag->help), "choose a non-keyword name");
-      return false;
-    }
-    alias_pos++;
-    if (alias_pos < row_end) {
-      direct_row_parse_diag(diag, &tokens->items[alias_pos], "expected end of row after import alias", "end of row");
-      return false;
-    }
-  }
-  return true;
-}
-
-static char *direct_row_module_path(const char *root, const char *module) {
-  ZBuf relative;
-  zbuf_init(&relative);
-  for (const char *cursor = module ? module : ""; *cursor; cursor++) {
-    zbuf_append_char(&relative, *cursor == '.' ? '/' : *cursor);
-  }
-  zbuf_append(&relative, ".0");
-  char *file_path = direct_join_path(root, relative.data);
-  if (direct_file_exists(file_path)) {
-    zbuf_free(&relative);
-    return file_path;
-  }
-  free(file_path);
-  if (relative.len >= 2 && strcmp(relative.data + relative.len - 2, ".0") == 0) {
-    relative.data[relative.len - 2] = 0;
-    relative.len -= 2;
-  }
-  char *dir_path = direct_join_path(root, relative.data);
-  char *mod_path = direct_join_path(dir_path, "mod.0");
-  free(dir_path);
-  if (direct_file_exists(mod_path)) {
-    zbuf_free(&relative);
-    return mod_path;
-  }
-  free(mod_path);
-  zbuf_append(&relative, ".row");
-  file_path = direct_join_path(root, relative.data);
-  if (direct_file_exists(file_path)) {
-    zbuf_free(&relative);
-    return file_path;
-  }
-  free(file_path);
-  if (relative.len >= 4 && strcmp(relative.data + relative.len - 4, ".row") == 0) {
-    relative.data[relative.len - 4] = 0;
-    relative.len -= 4;
-  }
-  dir_path = direct_join_path(root, relative.data);
-  mod_path = direct_join_path(dir_path, "mod.row");
-  free(dir_path);
-  zbuf_free(&relative);
-  if (direct_file_exists(mod_path)) return mod_path;
-  free(mod_path);
-  return NULL;
 }
 
 static bool direct_row_stack_contains(char **stack, size_t len, const char *path) {
@@ -4359,49 +4188,6 @@ static void direct_row_append_source(SourceInput *input, ZBuf *combined, const c
   }
   zbuf_append_char(combined, '\n');
   direct_input_push_source_line(input, path, original_line);
-}
-
-static bool direct_row_append_std_source(SourceInput *input, ZBuf *combined, const ZStdSourceModule *module, ZDiag *diag) {
-  if (!module) return true;
-  if (direct_input_has_file(input, module->path)) return true;
-  char *source = z_std_source_module_copy_source(module);
-  ZRowTokenVec tokens = z_row_tokenize(source, diag);
-  ZRowTree tree = {0};
-  if (diag->code == 0) z_row_parse_layout(&tokens, &tree, diag);
-  if (diag->code != 0) {
-    if (!diag->path) diag->path = z_strdup(module->path);
-    z_free_row_tree(&tree);
-    z_free_row_tokens(&tokens);
-    free(source);
-    return false;
-  }
-  direct_input_push_string(&input->source_files, &input->source_file_count, module->path);
-  direct_input_push_module(input, module->module, module->path);
-  bool ok = direct_input_add_row_symbols(input, &tokens, &tree, module->module, true, diag);
-  if (ok) direct_row_append_source(input, combined, module->path, source);
-  z_free_row_tree(&tree);
-  z_free_row_tokens(&tokens);
-  free(source);
-  return ok && (!diag || diag->code == 0);
-}
-
-static bool direct_row_references_std_module(const ZRowTokenVec *tokens, const char *name) {
-  for (size_t i = 0; tokens && name && i + 2 < tokens->len; i++) {
-    if (!direct_row_token_text(tokens, i, "std")) continue;
-    if (!direct_row_token_text(tokens, i + 1, ".")) continue;
-    if (direct_row_token_text(tokens, i + 2, name)) return true;
-  }
-  return false;
-}
-
-static bool direct_row_append_referenced_std_sources(SourceInput *input, ZBuf *combined, const ZRowTokenVec *tokens, ZDiag *diag) {
-  for (size_t i = 0; i < z_std_source_module_count(); i++) {
-    const ZStdSourceModule *module = z_std_source_module_at(i);
-    if (!module || strncmp(module->module, "std.", strlen("std.")) != 0) continue;
-    const char *name = module->module + strlen("std.");
-    if (direct_row_references_std_module(tokens, name) && !direct_row_append_std_source(input, combined, module, diag)) return false;
-  }
-  return !diag || diag->code == 0;
 }
 
 static char *direct_read_source_with_replacement(const char *path, const DirectSourceReplacement *replacement, ZDiag *diag) { return replacement && replacement->path && path && strlen(replacement->path) == strlen(path) && memcmp(replacement->path, path, strlen(path)) == 0 ? z_strdup(replacement->source ? replacement->source : "") : z_read_file(path, diag); }
@@ -4502,126 +4288,6 @@ static bool resolve_direct_canonical_source(const char *path, SourceInput *input
   return ok;
 }
 
-static bool direct_row_resolve_file(const char *path, const char *root, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len) {
-  if (direct_input_has_file(input, path)) return true;
-  if (direct_row_stack_contains(*stack, *stack_len, path)) {
-    direct_row_set_cycle_diag(diag, root, *stack, *stack_len, path, path, 1, 1, 1);
-    return false;
-  }
-
-  char *source = z_read_file(path, diag);
-  if (!source) return false;
-  char *module = direct_row_module_name_from_path(root, path);
-  *stack = z_checked_reallocarray(*stack, *stack_len + 1, sizeof(char *));
-  (*stack)[(*stack_len)++] = z_strdup(path);
-
-  ZRowTokenVec tokens = z_row_tokenize(source, diag);
-  ZRowTree tree = {0};
-  if (diag->code == 0) z_row_parse_layout(&tokens, &tree, diag);
-  if (diag->code != 0) {
-    if (!diag->path) diag->path = z_strdup(path);
-    z_free_row_tree(&tree);
-    z_free_row_tokens(&tokens);
-    free((*stack)[--(*stack_len)]);
-    free(module);
-    free(source);
-    return false;
-  }
-
-  if (!direct_row_append_referenced_std_sources(input, combined, &tokens, diag)) {
-    if (!diag->path) diag->path = z_strdup(path);
-  }
-
-  for (size_t i = 0; i < tree.len && diag->code == 0; i++) {
-    const ZRowNode *node = &tree.items[i];
-    if (node->parent != Z_ROW_NO_PARENT) continue;
-    size_t pos = node->first_token;
-    size_t end = node->first_token + node->token_count;
-    if (!direct_row_token_text(&tokens, pos, "use")) continue;
-    size_t module_start = pos + 1;
-    size_t module_end = module_start;
-    while (module_end < end && !direct_row_token_text(&tokens, module_end, "as")) module_end++;
-    if (!direct_row_validate_use(&tokens, module_start, module_end, end, diag)) {
-      if (!diag->path) diag->path = z_strdup(path);
-      break;
-    }
-    char *import_name = direct_row_join_module(&tokens, module_start, module_end);
-    if (strncmp(import_name, "std.", 4) == 0) {
-      free(import_name);
-      continue;
-    }
-    direct_input_push_import(input, import_name);
-    char *import_path = direct_row_module_path(root, import_name);
-    if (!import_path) {
-      const ZRowToken *token = module_start < end ? &tokens.items[module_start] : &tokens.items[pos];
-      diag->code = 7001;
-      diag->path = z_strdup(path);
-      diag->line = token->line;
-      diag->column = token->column;
-      diag->length = module_end > module_start ? (int)(tokens.items[module_end - 1].column + tokens.items[module_end - 1].length - token->column) : 1;
-      snprintf(diag->message, sizeof(diag->message), "unknown package-local import '%s'", import_name);
-      snprintf(diag->expected, sizeof(diag->expected), "%s.0 or %s/mod.0", import_name, import_name);
-      snprintf(diag->actual, sizeof(diag->actual), "missing source file");
-      snprintf(diag->help, sizeof(diag->help), "create the module source file or remove the import");
-      free(import_name);
-      break;
-    }
-    int import_length = module_end > module_start
-      ? (int)(tokens.items[module_end - 1].column + tokens.items[module_end - 1].length - tokens.items[pos].column)
-      : (int)tokens.items[pos].length;
-    if (direct_row_stack_contains(*stack, *stack_len, import_path)) {
-      direct_row_set_cycle_diag(diag, root, *stack, *stack_len, import_path, path, tokens.items[pos].line, tokens.items[pos].column, import_length);
-      free(import_path);
-      free(import_name);
-      break;
-    }
-    direct_input_push_import_edge(input, module, import_name, import_path, path, tokens.items[pos].line, tokens.items[pos].column, import_length);
-    bool ok = direct_row_resolve_file(import_path, root, input, combined, diag, stack, stack_len);
-    free(import_path);
-    free(import_name);
-    if (!ok) break;
-  }
-
-  if (diag->code == 0) {
-    direct_input_push_string(&input->source_files, &input->source_file_count, path);
-    direct_input_push_module(input, module, path);
-    bool allow_internal_names = direct_row_is_embedded_std_source_file(path, source);
-    if (allow_internal_names && input->source_file && strcmp(input->source_file, path) == 0) input->allow_missing_main = true;
-    if (direct_input_add_row_symbols(input, &tokens, &tree, module, allow_internal_names, diag)) {
-      direct_row_append_source(input, combined, path, source);
-    } else if (!diag->path) {
-      diag->path = z_strdup(path);
-    }
-  }
-
-  z_free_row_tree(&tree);
-  z_free_row_tokens(&tokens);
-  free((*stack)[--(*stack_len)]);
-  free(module);
-  free(source);
-  return diag->code == 0;
-}
-
-static bool resolve_direct_row_source_at_root(const char *path, const char *root, SourceInput *input, ZDiag *diag) {
-  input->source_file = z_strdup(path);
-  ZBuf combined;
-  zbuf_init(&combined);
-  char **stack = NULL;
-  size_t stack_len = 0;
-  bool ok = direct_row_resolve_file(path, root, input, &combined, diag, &stack, &stack_len);
-  free(stack);
-  input->source = ok ? combined.data : NULL;
-  if (!ok) zbuf_free(&combined);
-  return ok;
-}
-
-static bool resolve_direct_row_source(const char *path, SourceInput *input, ZDiag *diag) {
-  char *root = direct_dirname_of(path);
-  bool ok = resolve_direct_row_source_at_root(path, root, input, diag);
-  free(root);
-  return ok;
-}
-
 static bool resolve_direct_row_package_source(const char *input_path, SourceInput *input, ZDiag *diag, bool *handled) {
   *handled = false;
   char *manifest_path = z_manifest_path_for_input(input_path);
@@ -4641,16 +4307,16 @@ static bool resolve_direct_row_package_source(const char *input_path, SourceInpu
     free(manifest_path);
     return false;
   }
-  if (!parsed_manifest.main_path || !is_row_source_path(parsed_manifest.main_path)) {
+  if (!parsed_manifest.main_path || !is_zero_source_path(parsed_manifest.main_path)) {
     diag->code = 2002;
     diag->path = z_strdup(manifest_path);
     diag->line = 1;
     diag->column = 1;
     diag->length = 1;
-    snprintf(diag->message, sizeof(diag->message), "target main source must use current Zero syntax");
-    snprintf(diag->expected, sizeof(diag->expected), ".0 or .row source file");
+    snprintf(diag->message, sizeof(diag->message), "target main source must use canonical Zero source");
+    snprintf(diag->expected, sizeof(diag->expected), ".0 source file");
     snprintf(diag->actual, sizeof(diag->actual), "%s", parsed_manifest.main_path ? parsed_manifest.main_path : "missing targets.cli.main");
-    snprintf(diag->help, sizeof(diag->help), "set targets.cli.main to a current Zero source file");
+    snprintf(diag->help, sizeof(diag->help), "set targets.cli.main to a canonical .0 source file");
     z_free_manifest(&parsed_manifest);
     free(manifest);
     free(manifest_path);
@@ -4673,11 +4339,7 @@ static bool resolve_direct_row_package_source(const char *input_path, SourceInpu
       ok = false;
     } else {
       char *src_root = direct_join_path(input->package_root, "src");
-      if (has_suffix(parsed_manifest.main_path, ".0")) {
-        ok = resolve_direct_canonical_source_at_root(source_file, src_root, input, diag);
-      } else {
-        ok = resolve_direct_row_source_at_root(source_file, src_root, input, diag);
-      }
+      ok = resolve_direct_canonical_source_at_root(source_file, src_root, input, diag);
       free(src_root);
     }
     free(source_file);
@@ -4695,13 +4357,13 @@ static void set_source_input_diag(const char *input_path, ZDiag *diag) {
   diag->column = 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "expected Zero source file or package");
-  snprintf(diag->expected, sizeof(diag->expected), ".0 source file, .row source file, zero.json, or package directory");
+  snprintf(diag->expected, sizeof(diag->expected), ".0 source file, zero.json, or package directory");
   snprintf(diag->actual, sizeof(diag->actual), "%s", input_path ? input_path : "");
-  snprintf(diag->help, sizeof(diag->help), "pass a current Zero source file or a package with targets.cli.main");
+  snprintf(diag->help, sizeof(diag->help), "pass a canonical .0 source file or a package with targets.cli.main");
 }
 
 static bool load_command_source(const char *input_path, SourceInput *input, ZDiag *diag) {
-  if (is_row_source_path(input_path)) {
+  if (is_zero_source_path(input_path)) {
     return load_direct_row_source(input_path, input, diag);
   }
   bool handled_row_package = false;
@@ -4713,7 +4375,7 @@ static bool load_command_source(const char *input_path, SourceInput *input, ZDia
   return false;
 }
 
-static bool load_format_source(const char *input_path, SourceInput *input, ZDiag *diag) { if (is_row_source_path(input_path)) return load_direct_row_source(input_path, input, diag); SourceInput resolved = {0}; if (!load_command_source(input_path, &resolved, diag)) return false; char *source_file = z_strdup(resolved.source_file ? resolved.source_file : input_path); z_free_source(&resolved); bool ok = load_direct_row_source(source_file, input, diag); free(source_file); return ok; }
+static bool load_format_source(const char *input_path, SourceInput *input, ZDiag *diag) { if (is_zero_source_path(input_path)) return load_direct_row_source(input_path, input, diag); SourceInput resolved = {0}; if (!load_command_source(input_path, &resolved, diag)) return false; char *source_file = z_strdup(resolved.source_file ? resolved.source_file : input_path); z_free_source(&resolved); bool ok = load_direct_row_source(source_file, input, diag); free(source_file); return ok; }
 
 static bool finish_checked_source_input(const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag, long long parse_ms) {
   input->parse_ms = parse_ms;
@@ -4773,18 +4435,14 @@ static bool compile_input(const char *input_path, const ZTargetInfo *target, Sou
   }
   if (handled_row_package) return false;
 
-  if (is_row_source_path(input_path)) {
-    if (has_suffix(input_path, ".0")) {
-      ZDiag canonical_diag = {0};
-      bool parsed_canonical = false;
-      if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
-      if (try_check_canonical_text_input(target, input, program, &canonical_diag, phase_started, &parsed_canonical)) return true;
-      if (!parsed_canonical) z_map_source_diag(input, &canonical_diag);
-      if (diag) *diag = canonical_diag;
-      return false;
-    }
-    if (!resolve_direct_row_source(input_path, input, diag)) return false;
-    return check_row_input(target, input, program, diag, phase_started);
+  if (is_zero_source_path(input_path)) {
+    ZDiag canonical_diag = {0};
+    bool parsed_canonical = false;
+    if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
+    if (try_check_canonical_text_input(target, input, program, &canonical_diag, phase_started, &parsed_canonical)) return true;
+    if (!parsed_canonical) z_map_source_diag(input, &canonical_diag);
+    if (diag) *diag = canonical_diag;
+    return false;
   }
 
   set_source_input_diag(input_path, diag);
@@ -9924,7 +9582,7 @@ static bool reject_graph_source_text_out(const Command *command, const char *exp
   snprintf(diag->message, sizeof(diag->message), "program graph output must not use source text extension");
   snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "zero graph <subcommand> --out <program-graph-artifact> <input>");
   snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
-  snprintf(diag->help, sizeof(diag->help), ".0 and .row files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
+  snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
   if (command->json) print_diag_json(command->out, diag);
   else print_diag(command->out, diag);
   return true;
@@ -9937,7 +9595,7 @@ typedef enum {
 } GraphInputKind;
 
 static bool graph_input_is_source_path(const Command *command) {
-  return command && command->input && is_row_source_path(command->input);
+  return command && command->input && is_zero_source_path(command->input);
 }
 
 static bool load_canonical_source_program(const char *path, SourceInput *input, Program *program, ZDiag *diag) {
@@ -9999,12 +9657,8 @@ static bool load_source_program_for_graph_read(const char *input_path, SourceInp
   }
   if (handled_row_package) return false;
 
-  if (is_row_source_path(input_path)) {
-    if (has_suffix(input_path, ".0")) {
-      if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
-    } else {
-      if (!resolve_direct_row_source(input_path, input, diag)) return false;
-    }
+  if (is_zero_source_path(input_path)) {
+    if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
     return parse_graph_read_source_input(input, program, diag);
   }
 
@@ -10025,6 +9679,10 @@ static bool load_graph_input_for_read(const Command *command, const ZTargetInfo 
   memset(program, 0, sizeof(*program));
   memset(graph, 0, sizeof(*graph));
   if (kind) *kind = GRAPH_INPUT_ARTIFACT;
+  if (command && command->input && has_suffix(command->input, ".row")) {
+    set_source_input_diag(command->input, diag);
+    return false;
+  }
   if (graph_input_is_source_path(command)) return load_graph_from_current_source(command, target, input, program, graph, kind, diag);
 
   char *manifest_path = z_manifest_path_for_input(command->input);
@@ -10043,20 +9701,11 @@ static bool load_graph_input_for_patch(const Command *command, SourceInput *inpu
   memset(program, 0, sizeof(*program));
   memset(graph, 0, sizeof(*graph));
   if (kind) *kind = GRAPH_INPUT_ARTIFACT;
-  if (!graph_input_is_source_path(command)) return z_program_graph_load(command->input, graph, diag);
-
-  if (has_suffix(command->input, ".row")) {
-    diag->code = 2002;
-    diag->path = command->input;
-    diag->line = 1;
-    diag->column = 1;
-    diag->length = 1;
-    snprintf(diag->message, sizeof(diag->message), "graph patch source-backed writes require canonical .0 source");
-    snprintf(diag->expected, sizeof(diag->expected), "canonical .0 source file");
-    snprintf(diag->actual, sizeof(diag->actual), ".row source file");
-    snprintf(diag->help, sizeof(diag->help), "patch a .0 source file or write a ProgramGraph artifact with --out");
+  if (command && command->input && has_suffix(command->input, ".row")) {
+    set_source_input_diag(command->input, diag);
     return false;
   }
+  if (!graph_input_is_source_path(command)) return z_program_graph_load(command->input, graph, diag);
 
   if (!load_graph_from_checked_canonical_source_file(command->input, input, program, graph, diag)) {
     if (diag && !diag->path) diag->path = command->input;
@@ -10589,7 +10238,7 @@ static bool save_graph_patch_output(const Command *command, ZProgramGraph *graph
     snprintf(diag->message, sizeof(diag->message), "program graph output must not use source text extension");
     snprintf(diag->expected, sizeof(diag->expected), "zero graph patch --out <program-graph-artifact> <program-graph-artifact> (<patch-file>|--op <operation>)");
     snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
-    snprintf(diag->help, sizeof(diag->help), ".0 and .row files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
+    snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
     return false;
   }
   if (!z_program_graph_save(command->out, graph, diag)) return false;
@@ -10839,7 +10488,7 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
   if (!command || !command->command || !command->input || strcmp(command->command, "graph") != 0 || !command->kind) return true;
   ZProgramGraphInputMode input_mode = z_program_graph_command_input_mode(command->kind);
   if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE || input_mode == Z_PROGRAM_GRAPH_INPUT_UNKNOWN) return true;
-  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && is_row_source_path(command->input)) return true;
+  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && is_zero_source_path(command->input)) return true;
   if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && path_has_program_graph_storage_header(command->input)) {
     if (artifact_input) *artifact_input = true;
     return true;

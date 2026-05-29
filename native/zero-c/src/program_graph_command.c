@@ -22,7 +22,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "inspect",
     Z_PROGRAM_GRAPH_INPUT_SOURCE,
     "graph inspect does not support --out",
-    "zero graph inspect [--json] <file.0|file.row|project|zero.json>",
+    "zero graph inspect [--json] <file.0|project|zero.json>",
     "zero graph inspect --out",
     "use zero graph dump or zero graph import with --out when you need a derived ProgramGraph artifact"
   ),
