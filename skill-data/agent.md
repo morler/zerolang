@@ -5,7 +5,7 @@ description: Graph-first agent workflow for making focused Zero changes with CLI
 
 # Zero Agent Workflow
 
-Use this when editing Zero code, examples, tests, docs, or a package. The graph interface is the primary authoring surface for agents: use ProgramGraph artifacts to inspect, plan, patch, and validate changes. `.0` and `.row` files remain the canonical source text that gets committed.
+Use this when editing Zero code, examples, tests, docs, or a package. The graph interface is the primary authoring surface for agents: inspect and patch source through ProgramGraph commands, and use ProgramGraph artifacts only when you need an interchange/debug file. `.0` files are the canonical source text that gets committed.
 
 Zero offers two structured output formats: `--json` for external tools and CI,
 and `--zdn` (ZDN — Zero Data Notation) for AI agents. ZDN uses Zero's own row
@@ -29,28 +29,28 @@ Inside the Zero repository checkout, prefer `bin/zero` over a global `zero`. For
 ## Graph-First Edit Loop
 
 1. Read the nearest `zero.json`, source files, tests, and examples enough to understand the package boundary.
-2. Derive a local ProgramGraph artifact under `.zero/`:
+2. Inspect the current source through the graph:
 
 ```sh
-zero graph dump --out .zero/agent/work.program-graph <file-or-package>
+zero graph view <file-or-package>
+zero graph check <file-or-package>
 ```
 
-3. Inspect the graph-facing view and validate the artifact:
+3. Use JSON when you need exact node IDs or graph hashes:
 
 ```sh
-zero graph view .zero/agent/work.program-graph
-zero graph check .zero/agent/work.program-graph
+zero graph dump --json <file-or-package>
 ```
 
-4. For precise mechanical edits, prefer a checked graph patch over ad hoc graph-file rewrites:
+4. For precise mechanical edits on canonical `.0`, prefer a checked graph patch that rewrites the source after validation:
 
 ```sh
-zero graph patch --out .zero/agent/work.patched.program-graph .zero/agent/work.program-graph --expect-graph-hash graph:f76987e99677f1b3 --op 'rename node="#ea5ea1ca" expect="main" value="start"'
-zero graph check .zero/agent/work.patched.program-graph
-zero graph view .zero/agent/work.patched.program-graph
+zero graph patch <file.0> --expect-graph-hash graph:f76987e99677f1b3 --op 'rename node="#ea5ea1ca" expect="main" value="start"'
+zero graph check <file.0>
+zero check <file.0>
 ```
 
-5. Persist the accepted change in the canonical `.0` or `.row` source text. Do not commit derived `.program-graph` or generated `.zero` previews unless the user explicitly asks.
+5. When a graph artifact is necessary, write it under `.zero/`, patch the artifact, validate it, and then make the accepted source change. Do not commit derived `.program-graph` files unless the user explicitly asks.
 6. Run a focused source check:
 
 ```sh
@@ -75,8 +75,8 @@ zero fix --plan --zdn <file-or-package>  # ZDN variant for agents
 - Treat effects as capabilities, not ambient globals. Use `World`, `std.fs`, `std.args`, `std.env`, and similar APIs only where the target supports them.
 - Keep examples copyable and runnable from the repository or package root.
 - Prefer explicit types at public boundaries and when inference is unclear.
-- Use `Maybe<T>`, explicit `!` / `![...]`, and `check` instead of hidden failure.
-- Prefer graph inspection and graph patches for agent planning; source edits are the persistence step.
+- Use `Maybe<T>`, explicit `raises` / `raises [...]`, and `check` instead of hidden failure.
+- Prefer graph inspection and source-backed graph patches for agent planning and mechanical edits.
 - Do not invent syntax. Load `language` when unsure.
 - Do not invent CLI fields. If you need fields, run the command with `--zdn` (preferred for agents) or `--json` and read the data.
 
@@ -85,9 +85,9 @@ zero fix --plan --zdn <file-or-package>  # ZDN variant for agents
 ```sh
 zero check <input>
 zero graph <input>
-zero graph dump --out .zero/agent/work.program-graph <input>
-zero graph view .zero/agent/work.program-graph
-zero graph check .zero/agent/work.program-graph
+zero graph view <input>
+zero graph check <input>
+zero graph dump --json <input>
 zero test <input>
 zero size <input>
 zero doctor

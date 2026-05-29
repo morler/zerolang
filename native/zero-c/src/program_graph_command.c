@@ -22,19 +22,19 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "inspect",
     Z_PROGRAM_GRAPH_INPUT_SOURCE,
     "graph inspect does not support --out",
-    "zero graph inspect [--json] <file.0|file.row|project|zero.json>",
+    "zero graph inspect [--json] <file.0|project|zero.json>",
     "zero graph inspect --out",
     "use zero graph dump or zero graph import with --out when you need a derived ProgramGraph artifact"
   ),
   GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
-  GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_NO_OUT(
     "check",
-    Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
-    "graph check does not write generated previews",
-    "zero graph view --out <file.zero> <program-graph-artifact>",
+    Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
+    "graph check does not support --out",
+    "zero graph view --out <file.0> <program-graph-or-source>",
     "zero graph check --out",
-    "run zero graph view to render a generated .zero preview, or run zero graph check without --out to typecheck the ProgramGraph artifact"
+    "run zero graph view to render canonical source, or run zero graph check without --out to typecheck the ProgramGraph input"
   ),
   GRAPH_OUT("size", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("build", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
@@ -47,7 +47,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "zero graph test --out",
     "test results are reported on stdout; remove --out"
   ),
-  GRAPH_OUT("patch", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("patch", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_OUT("roundtrip", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
 };
 
@@ -81,7 +81,7 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
     "graph requires an output-capable subcommand for --out",
     "zero graph dump|import|validate|patch|roundtrip --out <program-graph-artifact> <input>",
     "zero graph --out",
-    "use zero graph view --out <file.zero> for generated previews, or choose a graph subcommand with command-specific output",
+    "use zero graph view --out <file.0> for canonical source, or choose a graph subcommand with command-specific output",
   };
   const ZProgramGraphCommandKind *item = graph_kind(kind);
   return item ? item->out_contract : fallback;

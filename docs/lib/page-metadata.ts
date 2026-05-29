@@ -4,7 +4,7 @@ import { findDocByPath } from "./docs";
 
 const SITE_NAME = "Zero";
 const DESCRIPTION =
-  "Zero is a pre-1 agent-first language experiment. Expect breaking changes and run it only in safe, non-production environments.";
+  "zerolang is an experimental graph-first programming language where agents work with semantic program structure instead of raw source text.";
 
 export function pageMetadata(slug: string): Metadata {
   const title = PAGE_TITLES[slug];

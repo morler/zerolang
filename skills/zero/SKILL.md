@@ -65,6 +65,9 @@ intentionally machine-readable.
 zero check <file-or-package>
 zero check --zdn <file-or-package>     # structured check for agents
 zero graph <file-or-package>
+zero graph view <file-or-package>
+zero graph check <file-or-package>
+zero graph dump --json <file-or-package>
 zero explain <diagnostic-code>
 
 # ProgramGraph workflow

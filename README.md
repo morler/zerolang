@@ -1,10 +1,18 @@
 # zerolang
 
-Experimental programming language for agent workflows.
+zerolang is an experimental graph-first programming language where agents work with semantic program structure instead of raw source text.
 
-Built for reliable autonomous software generation.
+Source code is still the source of truth. The graph is the compiler-derived interface agents use to inspect and change programs with less guessing.
 
-Optimized for:
+The current model:
+
+- Human-readable `.0` source stays reviewable, auditable, and durable.
+- The compiler derives a checked ProgramGraph from source.
+- Agents inspect graph facts such as node IDs, graph hashes, types, effects, ownership facts, capabilities, helper use, and module edges.
+- Agents can submit checked graph edits instead of only patching text ranges.
+- Where source rewriting is supported, the compiler validates the edit before writing source.
+
+Design goals:
 
 - Token efficiency
 - Low memory usage
@@ -17,18 +25,73 @@ Optimized for:
 >
 > Security vulnerabilities should be expected. zerolang is not ready for production systems, sensitive data, or trusted infrastructure. Run and develop it in isolated, disposable environments.
 
-## Agent Workflow Interfaces
+## Why Graph
 
-A small program shows function definitions, return rows, prefix calls, fallibility, and indentation:
+Agents can edit source text, but source text is a lossy interface for program understanding. A text patch has to guess which references are related, whether a range is stale, whether a call resolves to the intended function, and whether an edit preserved ownership, fallibility, effects, imports, and target constraints.
+
+The ProgramGraph is zerolang's compiler-owned structure for that work. It is meant to give agents a map they can navigate in slices: start from a symbol, diagnostic, call, capability, module, or node ID, then ask for the surrounding semantic facts instead of loading unrelated source. That keeps context gathering focused while leaving source code as the durable artifact humans review.
+
+The edit loop is also different. A graph edit can target `node #610c78bf` instead of a line range, require the inspected `graphHash`, require an expected field value, and let the compiler validate, lower, write, format, reparse, and check the result as one path. Refactors can be expressed as semantic operations such as renaming a function node or replacing a resolved callee, rather than search-and-replace over text followed by separate cleanup commands.
+
+## Source Text
+
+`.0` source is intentionally regular. The goal is source that behaves like durable data: easy to index, compare, format, audit, and regenerate, while still reading like normal code.
+
+A small program shows typed signatures, infix expressions, fallibility, and explicit capability passing:
 
 ```zero
-fn answer i32
-  ret + 40 2
+fn answer() -> i32 {
+    return 40 + 2
+}
 
-pub fn main Void world World !
-  if == answer() 42
-    check world.out.write "math works\n"
+pub fn main(world: World) -> Void raises {
+    if answer() == 42 {
+        check world.out.write("math works\n")
+    }
+}
 ```
+
+Source code remains the stored representation. ProgramGraph artifacts are derived inspection and interchange data, not the primary project files.
+
+## ProgramGraph
+
+Agents do not have to infer every fact from text. The compiler can expose the checked structure of a program directly:
+
+```bash
+zero graph dump examples/hello.0
+```
+
+Example output:
+
+```text
+zero-graph v1
+origin source-text
+module "hello"
+hash "graph:b8a019041020df03"
+
+node #ea5ea1ca Function name:"main" type:"Void" public:true fallible:true
+node #f9ce8b3e Param name:"world" type:"World"
+node #421a4d4b MethodCall name:"write" type:"Void"
+node #610c78bf Literal type:"String" value:"hello from zero\n"
+edge #421a4d4b arg #610c78bf order:0
+edge #ea5ea1ca body #6c48dda8
+```
+
+The graph gives agents explicit handles such as node IDs, graph hashes, resolved types, effects, ownership facts, capability facts, helper use, and module edges. The hash is a stale-context check; node IDs are edit targets for the graph that was inspected.
+
+## Checked Graph Edits
+
+For supported canonical `.0` source, `zero graph patch` applies checked edits to the graph and rewrites source only after validation. The command is intended to collapse the normal agent loop of edit, format, reparse, check, and fix into a compiler-mediated operation:
+
+```bash
+zero graph patch examples/hello.0 \
+  --expect-graph-hash graph:b8a019041020df03 \
+  --op 'set node="#610c78bf" field="value" expect="hello from zero\n" value="hello graph\n"'
+```
+
+This is different from a source-text patch. The operation targets a checked semantic node and field. The graph hash rejects stale context, and `expect` rejects the edit if the current field value is different from what the agent inspected.
+
+## Agent Workflow Interfaces
 
 The compiler exposes the workflow through CLI commands with stable structured output.
 
@@ -57,11 +120,12 @@ Compiler state is exposed through structured command output instead of prose-onl
 zero tokens --json examples/hello.0
 zero parse --json examples/hello.0
 zero check --json examples/hello.0
+zero graph dump examples/hello.0
 zero graph --json examples/systems-package
 zero size --json examples/point.0
 ```
 
-The JSON contracts include diagnostic codes and spans, public symbols, import edges, target readiness, compile-time sandbox facts, retained helpers, and size retention reasons.
+The structured contracts include diagnostic codes and spans, public symbols, import edges, target readiness, compile-time sandbox facts, retained helpers, graph hashes, node IDs, and size retention reasons.
 
 ### Compiler-Native Contracts
 
@@ -75,6 +139,8 @@ The inspection and repair surfaces are compiler commands, not editor-only featur
 | `zero check --json` | Diagnostics with code, span, expected/actual fields, fix safety, repair metadata, compile-time sandbox facts, and target readiness. |
 | `zero parse --json` | A stable parse summary with declarations, function signatures, and body node kinds. |
 | `zero graph --json` | Modules, imports, public symbols, capabilities, effects, ownership facts, helper use, and interface fingerprints. |
+| `zero graph dump` | Deterministic ProgramGraph text with graph hashes, node IDs, nodes, and edges. |
+| `zero graph patch` | Checked graph edits with graph-hash and field-value preconditions. |
 | `zero fix --plan --json` | Typed repair plans that describe proposed fixes without editing files. |
 | `zero size --json` | Retained helpers, size reasons, profile policy, backend facts, and artifact budget data. |
 
@@ -117,14 +183,14 @@ See `examples/agent-repair-demo/` for the broken fixture, suggested edit, fixed 
 
 ### Compatibility Policy
 
-zerolang is intentionally unstable before 1.0. The repo prefers one current syntax and one formatted style over compatibility layers:
+zerolang is experimental and intentionally unstable. The repo prefers one current syntax and one formatted style over compatibility layers:
 
 ```bash
 zero fmt --check examples/hello.0
 zero check --json examples/hello.0
 ```
 
-Before 1.0, the project may make breaking changes to simplify the language, standard library, diagnostics, or inspection APIs for agent use.
+The project may make breaking changes to simplify the language, standard library, diagnostics, graph APIs, or inspection surfaces for agent use.
 
 ## Quick Start
 

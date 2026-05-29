@@ -62,8 +62,8 @@ async function collectSkillMdFiles(dir: string): Promise<string[]> {
 
 describe("native zero CLI", () => {
   it("prints a terse plain version", async () => {
-    assert.equal((await runZero(["--version", "--text"])).stdout, "zero 0.1.4\n");
-    assert.equal((await runNativeZero(["--version", "--text"])).stdout, "zero 0.1.4\n");
+    assert.equal((await runZero(["--version", "--text"])).stdout, "zero 0.2.0\n");
+    assert.equal((await runNativeZero(["--version", "--text"])).stdout, "zero 0.2.0\n");
   });
 
   it("checks directly and rejects removed legacy build flags", async () => {
@@ -125,8 +125,9 @@ describe("native zero CLI", () => {
       );
       await writeFile(
         join(src, "main.0"),
-        `pub fn main Void world World !
-  check world.out.write "hello from demo\\n"
+        `pub fn main(world: World) -> Void raises {
+    check world.out.write("hello from demo\\n")
+}
 `,
       );
 

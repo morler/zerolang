@@ -218,6 +218,7 @@ static const char *graph_expr_value(const Expr *expr) {
   if (!expr) return NULL;
   if (expr->kind == EXPR_BOOL) return expr->bool_value ? "true" : "false";
   if (expr->kind == EXPR_NULL) return "null";
+  if (expr->kind == EXPR_CALL && expr->prefix_deref) return "prefix-deref";
   if (expr->kind == EXPR_ARRAY_LITERAL && expr->array_repeat) return "repeat";
   if (expr->kind == EXPR_STRING || expr->kind == EXPR_CHAR || expr->kind == EXPR_NUMBER) return expr->text;
   return NULL;
@@ -258,7 +259,7 @@ static ZProgramGraphNodeKind graph_expr_kind(const Expr *expr) {
 static const char *graph_build_expr(ZProgramGraph *graph, const SourceInput *input, const Expr *expr);
 
 static void graph_build_expr_edges(ZProgramGraph *graph, const SourceInput *input, const Expr *expr, const char *node_id) {
-  if (expr->left) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->left), "left", 0);
+  if (expr->left && expr->kind != EXPR_SHAPE_LITERAL) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->left), "left", 0);
   if (expr->right) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->right), "right", 1);
   for (size_t i = 0; i < expr->args.len; i++) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->args.items[i]), "arg", i);
   for (size_t i = 0; i < expr->fields.len; i++) {
@@ -461,6 +462,7 @@ static void graph_build_sum_decls(ZProgramGraph *graph, const SourceInput *input
     const EnumDecl *item = &program->enums.items[i];
     ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_ENUM, item->name, item->type, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
     const char *node_id = node->id;
+    node->is_public = item->is_public;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node_id, "enum", i);
     graph_build_top_level_params(graph, input, &item->cases, node_id, "case", Z_PROGRAM_GRAPH_NODE_ENUM_CASE);
   }
@@ -468,6 +470,7 @@ static void graph_build_sum_decls(ZProgramGraph *graph, const SourceInput *input
     const Choice *item = &program->choices.items[i];
     ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_CHOICE, item->name, NULL, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
     const char *node_id = node->id;
+    node->is_public = item->is_public;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node_id, "choice", i);
     graph_build_top_level_params(graph, input, &item->cases, node_id, "case", Z_PROGRAM_GRAPH_NODE_CHOICE_CASE);
   }
